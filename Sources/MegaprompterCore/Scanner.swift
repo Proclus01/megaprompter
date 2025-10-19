@@ -2,7 +2,7 @@
 import Foundation
 
 /// Traverses the project tree and selects eligible source/config files for the megaprompt.
-/// Robust pruning: skips any file or directory if **any path segment** matches a pruned name
+/// Robust pruning: skips any file or directory if any path segment matches a pruned name
 /// (e.g., `.build`, `.swiftpm`, `.vscode`, `.git`, `node_modules`, etc.), preventing deep
 /// traversal into dependency checkouts like `.build/checkouts/...`.
 public final class ProjectScanner {
@@ -10,17 +10,27 @@ public final class ProjectScanner {
   private let rules: IncludeRules
   private let maxFileBytes: UInt64
 
-  public init(profile: ProjectProfile, maxFileBytes: Int) {
+  // User-provided prunes (names and globs)
+  private let customPruneNames: Set<String>
+  private let customPruneGlobs: [String]
+
+  public init(
+    profile: ProjectProfile,
+    maxFileBytes: Int,
+    extraPruneDirNames: [String] = [],
+    extraPruneGlobs: [String] = []
+  ) {
     self.profile = profile
     self.rules = RulesFactory.build(for: profile.languages)
     self.maxFileBytes = UInt64(maxFileBytes)
+    self.customPruneNames = Set(extraPruneDirNames)
+    self.customPruneGlobs = extraPruneGlobs
   }
 
   public func collectFiles() throws -> [URL] {
     var selected: [URL] = []
     let root = profile.root
 
-    // Use a strongly-typed enumerator to avoid conditional-cast warnings.
     guard let enumerator = FileManager.default.enumerator(
       at: root,
       includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey],
@@ -34,9 +44,8 @@ public final class ProjectScanner {
     }
 
     while let item = enumerator.nextObject() as? URL {
-      // --- Global prune: if ANY path component is a pruned directory, skip it entirely.
+      // Global prune: if any path component is a pruned directory, or if the rel path matches a custom glob, skip it.
       if isInPrunedPath(item) {
-        // If it's a directory, stop descending; if it's a file, just skip it.
         if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false {
           enumerator.skipDescendants()
         }
@@ -59,12 +68,19 @@ public final class ProjectScanner {
 
   // MARK: - Helpers
 
-  /// True if any path segment of `url` matches a pruned directory name.
-  /// This catches deep paths like `.build/checkouts/.../Sources/...`.
+  /// True if any path segment of `url` matches a pruned directory name or if the relative path matches a custom glob.
   private func isInPrunedPath(_ url: URL) -> Bool {
     let comps = url.pathComponents
-    // Fast path: if the repo root itself is in the list (shouldn't be), ignore that element
-    return comps.contains(where: { rules.pruneDirs.contains($0) })
+    if comps.contains(where: { rules.pruneDirs.contains($0) || customPruneNames.contains($0) }) {
+      return true
+    }
+    if !customPruneGlobs.isEmpty {
+      let rel = url.pathRelative(to: profile.root)
+      if customPruneGlobs.contains(where: { Glob.match(relPath: rel, pattern: $0) }) {
+        return true
+      }
+    }
+    return false
   }
 
   // MARK: - Filters

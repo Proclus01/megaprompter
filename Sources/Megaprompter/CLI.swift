@@ -1,3 +1,4 @@
+// Sources/Megaprompter/CLI.swift
 import Foundation
 import ArgumentParser
 import MegaprompterCore
@@ -28,6 +29,21 @@ struct MegapromptCLI: ParsableCommand {
   @Flag(name: .long, help: "Print a summary of detected project types and included files.")
   var showSummary: Bool = false
 
+  // Allow the user to ignore directories by name or glob/path (relative to the target root).
+  // Examples:
+  //   megaprompt . --ignore data
+  //   megaprompt . -I docs/generated/**
+  // Accepts multiple values: --ignore a --ignore b
+  @Option(
+    name: [.customLong("ignore"), .customShort("I"), .short],
+    parsing: .upToNextOption,
+    help: ArgumentHelp(
+      "Directory names or glob paths to ignore (repeatable). " +
+      "Examples: --ignore data --ignore docs/generated/** --ignore .cache/**"
+    )
+  )
+  var ignore: [String] = []
+
   func run() throws {
     let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
     guard FileSystem.isDirectory(root) else {
@@ -46,8 +62,25 @@ struct MegapromptCLI: ParsableCommand {
       """)
     }
 
-    // 2) Scan with language-aware rules
-    let scanner = ProjectScanner(profile: profile, maxFileBytes: maxFileBytes)
+    // Split user ignores into simple directory names vs. glob/path patterns.
+    let rawIgnores = ignore.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    var ignoreNames: [String] = []
+    var ignoreGlobs: [String] = []
+    for val in rawIgnores {
+      if val.contains("/") || val.contains("*") || val.contains("?") {
+        ignoreGlobs.append(val)
+      } else {
+        ignoreNames.append(val)
+      }
+    }
+
+    // 2) Scan with language-aware rules + user ignores
+    let scanner = ProjectScanner(
+      profile: profile,
+      maxFileBytes: maxFileBytes,
+      extraPruneDirNames: ignoreNames,
+      extraPruneGlobs: ignoreGlobs
+    )
     let files = try scanner.collectFiles()
 
     if showSummary || dryRun {
@@ -55,7 +88,11 @@ struct MegapromptCLI: ParsableCommand {
       let langs = profile.languages.sorted().joined(separator: ", ")
       Console.info("Detected languages: \(langs.isEmpty ? "(none)" : langs)")
       if !profile.why.isEmpty {
-        Console.info("Evidence:\n  - " + profile.why.joined(separator: "\n  - "))
+        Console.info("Evidence:\n  - " + profile.why.map { "\($0)" }.joined(separator: "\n  - "))
+      }
+      if !ignoreNames.isEmpty || !ignoreGlobs.isEmpty {
+        if !ignoreNames.isEmpty { Console.info("User ignore names: \(ignoreNames.joined(separator: ", "))") }
+        if !ignoreGlobs.isEmpty { Console.info("User ignore globs: \(ignoreGlobs.joined(separator: ", "))") }
       }
       Console.info("Files to include (\(files.count)):")
       for url in files {

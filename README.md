@@ -5,7 +5,7 @@ Generate a single **XML-like megaprompt** containing the *real* source files and
 * **Safety first:** refuses to run outside a code project (override with `--force`).
 * **Smart detection:** identifies TypeScript/JS, Swift, Python, Go, Rust, Java/Kotlin, C/C++, C#, PHP, Ruby, Terraform, etc.
 * **Language-aware rules:** prefers `.ts/.tsx` over `.js/.jsx` when TS is present; includes CI (GitHub Actions) YAML.
-* **Pruning:** skips vendor, build, and cache directories for speed and relevance.
+* **Pruning:** skips vendor, build, and cache directories for speed and relevance. You can also pass your own prunes with `--ignore`.
 * **Output:** one blob with each file wrapped as a tag of its relative path and the content in `CDATA`.
 * **Persistence + Clipboard:** writes `.MEGAPROMPT_YYYYMMDD_HHMMSS` and copies the same text to your clipboard.
 
@@ -55,6 +55,20 @@ megaprompt packages/app
 megaprompt foo/bar
 ```
 
+Ignore directories by name or glob/path (repeatable):
+
+```bash
+# Ignore all directories named "data" anywhere in the tree
+megaprompt . --ignore data
+
+# Ignore by glob/path (relative to the target root)
+megaprompt . --ignore docs/generated/**
+megaprompt . -I .cache/**     # also supports a short -I (and -i)
+
+# Combine multiple ignores
+megaprompt . --ignore screenshots --ignore assets/** --ignore tmp
+```
+
 Dry run & show summary (no write/clipboard):
 
 ```bash
@@ -76,7 +90,7 @@ megaprompt . --max-file-bytes 500000
 ### Command Options
 
 ```
-USAGE: megaprompt [<path>] [--force] [--max-file-bytes <int>] [--dry-run] [--show-summary]
+USAGE: megaprompt [<path>] [--force] [--max-file-bytes <int>] [--ignore <name-or-glob> ...] [--dry-run] [--show-summary]
 
 ARGUMENTS:
   <path>                 Target directory ('.' by default). Accepts relative or absolute paths.
@@ -84,6 +98,9 @@ ARGUMENTS:
 OPTIONS:
   --force                Force run even if the directory does not look like a code project.
   --max-file-bytes       Skip files larger than this many bytes (default: 1500000).
+  --ignore               Directory names or glob paths to ignore (repeatable).
+                         Examples: --ignore data --ignore docs/generated/** --ignore .cache/**
+                         Short alias: -I (also accepts -i)
   --dry-run              Only show what would be included; do not write or copy.
   --show-summary         Print a summary of detected project types and included files.
   -h, --help             Show help information.
@@ -136,6 +153,7 @@ jobs:
 * **Treat tests as code:** files/folders matching common patterns (`*.test.*`, `*.spec.*`, `__tests__`, `tests`, `spec`, etc.).
 * **Pruned directories** (partial list):
   `node_modules`, `.git`, `.next`, `dist`, `build`, `out`, `target`, `bin`, `obj`, `vendor`, `.terraform`, `.gradle`, `.idea`, `.vscode`, `__pycache__`, `.mypy_cache`, `.pytest_cache`, `Pods`, `DerivedData`, etc.
+* **User prunes:** you can additionally skip directories/paths with `--ignore <name-or-glob>` (repeat as needed).
 * **Skipped files:** locks (`yarn.lock`, `pnpm-lock.yaml`, etc.), secrets (`.env*`, `*.pem`), binaries, large assets/images, archives, minified bundles (`*.min.js`), source maps.
 
 ---
@@ -174,7 +192,7 @@ jobs:
   The tool tries `pbcopy` → `wl-copy` → `xclip` → `xsel` → `clip`. If none are present, it still writes the `.MEGAPROMPT_*` file. Install one of those tools or copy from the file manually.
 
 * **Too many files included / excluded**
-  Use `--dry-run --show-summary` to see the exact file list. If you need different behavior, adjust the rules in `Sources/MegaprompterCore/Rules.swift` (allowed extensions, forced includes, prunes).
+  Use `--dry-run --show-summary` to see the exact file list. If you need different behavior, adjust the rules in `Sources/MegaprompterCore/Rules.swift` (allowed extensions, forced includes, prunes). You can also exclude specific directories/paths at runtime with `--ignore`.
 
 ---
 
@@ -198,6 +216,12 @@ jobs:
 
   ```bash
   megaprompt . --max-file-bytes 300000
+  ```
+
+* Ignore common generated content:
+
+  ```bash
+  megaprompt . --ignore docs/generated/** --ignore screenshots
   ```
 
 ---
