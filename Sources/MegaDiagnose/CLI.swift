@@ -28,7 +28,8 @@ struct MegaDiagnoseCLI: ParsableCommand {
   @Option(name: .long, help: "Write fix prompt text to this file.")
   var promptOut: String?
 
-  @Flag(name: .long, help: "Print a brief summary to stderr.")
+  @Flag(name: .long, inversion: .prefixedNo,
+        help: "Print a brief summary to stderr (use --no-show-summary to disable).")
   var showSummary: Bool = true
 
   @Flag(name: .long, help: "Write artifact as a hidden dotfile (.MEGADIAG_*). By default, it's visible (MEGADIAG_*).")
@@ -157,4 +158,3 @@ struct RuntimeError: Error, CustomStringConvertible {
   let description: String
   init(_ description: String) { self.description = description }
 }
-

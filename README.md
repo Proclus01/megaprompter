@@ -30,6 +30,16 @@ To update later, rebuild and re-link.
 
 ---
 
+## What counts as a “project”?
+
+The detector marks a directory as a “code project” if either:
+- Any recognized marker exists (e.g., Package.swift, package.json, pyproject.toml, go.mod, Cargo.toml, pom.xml, etc.), or
+- At least 8 recognizable source files are present (based on known extensions).
+
+Both CLIs refuse to run outside a detected project unless you pass --force.
+
+---
+
 ## Megaprompter (megaprompt)
 
 Generate a single XML-like megaprompt containing the real source files and essential configs from your project (tests included) — perfect for pasting into LLMs or code review tools.
@@ -39,7 +49,7 @@ Generate a single XML-like megaprompt containing the real source files and essen
 - Language-aware rules: prefers `.ts/.tsx` over `.js/.jsx` when TypeScript is present.
 - Pruning: skips vendor, build, and cache directories for speed and relevance. You can also pass your own prunes with `--ignore`.
 - Output: one blob with each file wrapped as a tag of its relative path and the content in `CDATA`.
-- Persistence + Clipboard: writes `.MEGAPROMPT_YYYYMMDD_HHMMSS` and copies the same text to your clipboard.
+- Persistence + Clipboard: writes `.MEGAPROMPT_YYYYMMDD_HHMMSS` (hidden dotfile) and copies the same text to your clipboard.
 
 ### Usage
 
@@ -150,6 +160,7 @@ Tag names are the relative file paths. It’s intentionally pseudo-XML to keep t
 - Pruned directories (partial list): `node_modules`, `.git`, `.next`, `dist`, `build`, `out`, `target`, `bin`, `obj`, `vendor`, `.terraform`, `.gradle`, `.idea`, `.vscode`, `__pycache__`, `.mypy_cache`, `.pytest_cache`, `Pods`, `DerivedData`, etc.
 - User prunes: additionally skip directories/paths with `--ignore <name-or-glob>` (repeat as needed).
 - Skipped files: locks (`yarn.lock`, `pnpm-lock.yaml`, etc.), secrets (`.env*`, `*.pem`), binaries, large assets/images, archives, minified bundles (`*.min.js`), source maps.
+- Non-UTF-8 files are skipped with a warning to avoid emitting empty content.
 
 ---
 
@@ -161,7 +172,7 @@ A companion CLI that scans your project, runs language‑appropriate compilers/c
 - Executes relevant tools when available:
   - Swift (SwiftPM): `swift build`
   - TypeScript: `npx -y tsc -p . --noEmit`
-  - JavaScript fallback: `npm run -s build` if present
+  - JavaScript-only projects: try `npx -y tsc --allowJs --checkJs --noEmit`, then fallback to `npx -y eslint -f unix .`, else `npm run -s build`
   - Go: deep scan across ALL packages (`go list ./...`; `go build -gcflags=all=-e <pkg>`)
   - Rust: `cargo check --color never`
   - Python: `python3 -m py_compile` on each `.py` file
@@ -175,6 +186,7 @@ A companion CLI that scans your project, runs language‑appropriate compilers/c
   - Fix prompt (`--prompt-out`)
   - Artifact in the target directory: `MEGADIAG_YYYYMMDD_HHMMSS` (visible by default)
     - Optional hidden dotfile: `.MEGADIAG_YYYYMMDD_HHMMSS` with `--artifact-hidden`
+    - Convenience symlink updated on each run: `MEGADIAG_latest` or `.MEGADIAG_latest` (if hidden)
 
 ### Usage
 
@@ -184,6 +196,9 @@ megadiagnose .
 
 # Write the artifact as a hidden dotfile (.MEGADIAG_*)
 megadiagnose . --artifact-hidden
+
+# Choose a directory for the artifact (defaults to the target path)
+megadiagnose . --artifact-dir artifacts/
 
 # Ignore directories/files by name or glob (repeatable)
 megadiagnose . --ignore data --ignore docs/generated/** --ignore .cache/**
@@ -201,7 +216,7 @@ megadiagnose . --force
 #### Command Options
 
 ```
-USAGE: megadiagnose [<path>] [--force] [--timeout-seconds <int>] [--xml-out <path>] [--json-out <path>] [--prompt-out <path>] [--show-summary] [--artifact-hidden] [--ignore <name-or-glob> ...]
+USAGE: megadiagnose [<path>] [--force] [--timeout-seconds <int>] [--xml-out <path>] [--json-out <path>] [--prompt-out <path>] [--show-summary|--no-show-summary] [--artifact-hidden] [--artifact-dir <path>] [--ignore <name-or-glob> ...]
 
 ARGUMENTS:
   <path>                 Target directory ('.' by default). Accepts relative or absolute paths.
@@ -212,8 +227,10 @@ OPTIONS:
   --xml-out              Write XML output to this file (default: stdout).
   --json-out             Write JSON output to this file.
   --prompt-out           Write fix prompt text to this file.
-  --show-summary         Print a brief summary to stderr.
+  --show-summary         Print a brief summary to stderr (default: on).
+  --no-show-summary      Disable the summary.
   --artifact-hidden      Write artifact as a hidden dotfile (.MEGADIAG_*). Default is visible (MEGADIAG_*).
+  --artifact-dir         Directory where the MEGADIAG_* artifact is written (default: the target path).
   --ignore               Directory names or glob paths to ignore (repeatable).
                          Examples: --ignore data --ignore docs/generated/**
                          Short aliases: -I, -i
@@ -222,13 +239,15 @@ OPTIONS:
 
 ### What it Writes
 
-- A single artifact file in your target directory:
+- A single artifact file in your target directory (or `--artifact-dir`):
   - Visible: `MEGADIAG_YYYYMMDD_HHMMSS`
   - Hidden: `.MEGADIAG_YYYYMMDD_HHMMSS` (if `--artifact-hidden` is used)
 - The artifact is a pseudo‑XML envelope that embeds:
-  - `<xml>`: the XML diagnostics summary (includes per-language issue summaries and a fix_prompt section).
+  - `<xml>`: the XML diagnostics summary (uses neutral `<issue>` elements; includes per-language issue summaries and a fix_prompt section).
   - `<json>`: the same diagnostics in JSON.
   - `<fix_prompt>`: a short, actionable prompt for LLMs to produce minimal patches.
+- A convenience symlink to the most recent artifact:
+  - `MEGADIAG_latest` (visible) or `.MEGADIAG_latest` (hidden)
 
 Example (truncated):
 
@@ -238,9 +257,9 @@ Example (truncated):
     <![CDATA[
 <diagnostics>
   <language name="swift" tool="swift build">
-    <error file="Sources/App/main.swift" line="12" column="5" severity="error" code="">
+    <issue file="Sources/App/main.swift" line="12" column="5" severity="error" code="">
       <![CDATA[cannot find 'Foo' in scope]]>
-    </error>
+    </issue>
     <summary count="1" errors="1" warnings="0" />
   </language>
   <summary total_languages="1" total_issues="1" />
@@ -294,7 +313,7 @@ Example (truncated):
   Then reopen the package in Xcode if desired.
 
 - Clipboard didn’t copy (megaprompt)  
-  The tool tries `pbcopy` → `wl-copy` → `xclip` → `xsel` → (Windows) `clip`. If none are present, it still writes the `.MEGAPROMPT_*` file. Install one of those tools or copy from the file manually.
+  The tool tries `pbcopy` → `wl-copy` → `xclip` → `xsel` → (Windows) `clip`. If none are present, it still writes the `.MEGAPROMPT_*` file. Install one of those tools or copy from the file manually. On X11 systems, selection owners can be transient — consider pasting immediately after copying.
 
 - Too many files included/excluded (megaprompt)  
   Use `--dry-run --show-summary` to see the exact file list. If you need different behavior, adjust `Sources/MegaprompterCore/Rules.swift` or exclude specific directories/paths at runtime with `--ignore`.

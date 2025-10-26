@@ -69,23 +69,66 @@ public final class DiagnosticsRunner {
   private func runTypeScriptOrJS() -> LanguageDiagnostics {
     var issues: [Diagnostic] = []
     var usedTool = "tsc"
-    if FileManager.default.fileExists(atPath: root.appendingPathComponent("tsconfig.json").path) {
+    let hasTS = FileManager.default.fileExists(atPath: root.appendingPathComponent("tsconfig.json").path)
+
+    if hasTS {
+      // Regular TypeScript mode
       if let npx = Exec.which("npx") {
         let res = Exec.run(launchPath: npx, args: ["-y", "tsc", "-p", ".", "--noEmit"], cwd: root, timeoutSeconds: timeout)
         issues.append(contentsOf: Parsers.parseTypeScript(res.stdout, res.stderr))
+        usedTool = "tsc"
       } else if let tsc = Exec.which("tsc") {
         let res = Exec.run(launchPath: tsc, args: ["-p", ".", "--noEmit"], cwd: root, timeoutSeconds: timeout)
         issues.append(contentsOf: Parsers.parseTypeScript(res.stdout, res.stderr))
+        usedTool = "tsc"
       } else {
         Console.warn("tsc not found; attempting npm run build")
         usedTool = "npm run build"
         issues.append(contentsOf: runNpmBuildAndParseTS())
       }
     } else {
-      usedTool = "npm run build"
-      issues.append(contentsOf: runNpmBuildAndParseTS())
+      // JavaScript-only projects: attempt TypeScript checker in JS mode; fall back to eslint unix format
+      usedTool = "js diagnostics"
+      if let npx = Exec.which("npx") {
+        // Try TS checker in JS mode
+        let res = Exec.run(launchPath: npx, args: ["-y", "tsc", "--allowJs", "--checkJs", "--noEmit"], cwd: root, timeoutSeconds: timeout)
+        var tsAsJs = Parsers.parseTypeScript(res.stdout, res.stderr)
+        if !tsAsJs.isEmpty {
+          // Re-label diagnostics to javascript
+          tsAsJs = tsAsJs.map { d in
+            Diagnostic(tool: "tsc --allowJs --checkJs", language: "javascript", file: d.file, line: d.line, column: d.column, code: d.code, severity: d.severity, message: d.message)
+          }
+          issues.append(contentsOf: tsAsJs)
+          usedTool = "tsc --allowJs --checkJs"
+        }
+        if issues.isEmpty {
+          // eslint unix formatter
+          let res2 = Exec.run(launchPath: npx, args: ["-y", "eslint", "-f", "unix", "."], cwd: root, timeoutSeconds: timeout)
+          let es = Parsers.parseUnixStyle(res2.stdout, res2.stderr, language: "javascript", tool: "eslint")
+          if !es.isEmpty { usedTool = "eslint -f unix" }
+          issues.append(contentsOf: es)
+        }
+        if issues.isEmpty {
+          // Last resort: npm build; try to parse as TypeScript, re-label as JS
+          usedTool = "npm run build"
+          var fromNpm = runNpmBuildAndParseTS()
+          fromNpm = fromNpm.map { d in
+            Diagnostic(tool: "npm run build", language: "javascript", file: d.file, line: d.line, column: d.column, code: d.code, severity: d.severity, message: d.message)
+          }
+          issues.append(contentsOf: fromNpm)
+        }
+      } else {
+        // No npx; try npm build fallback
+        usedTool = "npm run build"
+        var fromNpm = runNpmBuildAndParseTS()
+        fromNpm = fromNpm.map { d in
+          Diagnostic(tool: "npm run build", language: "javascript", file: d.file, line: d.line, column: d.column, code: d.code, severity: d.severity, message: d.message)
+        }
+        issues.append(contentsOf: fromNpm)
+      }
     }
-    return LanguageDiagnostics(name: "typescript", tool: usedTool, issues: issues)
+
+    return LanguageDiagnostics(name: hasTS ? "typescript" : "javascript", tool: usedTool, issues: issues)
   }
 
   private func runNpmBuildAndParseTS() -> [Diagnostic] {

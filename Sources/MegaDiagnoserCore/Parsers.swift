@@ -156,6 +156,22 @@ public enum Parsers {
     }
     return results
   }
+
+  // Unix formatter: path:line:column: message
+  // Useful for eslint -f unix .
+  public static func parseUnixStyle(_ stdout: String, _ stderr: String, language: String, tool: String) -> [Diagnostic] {
+    var results: [Diagnostic] = []
+    let combined = stdout + "\n" + stderr
+    let regex = try! NSRegularExpression(pattern: #"^(.+?):(\d+):(\d+):\s*(.+)$"#, options: [.anchorsMatchLines])
+    combined.enumerateMatches(regex: regex) { m in
+      let file = m[1]
+      let line = Int(m[2])
+      let col = Int(m[3])
+      let msg = m[4]
+      results.append(Diagnostic(tool: tool, language: language, file: file, line: line, column: col, code: nil, severity: .warning, message: msg))
+    }
+    return results
+  }
 }
 
 // MARK: - Helpers

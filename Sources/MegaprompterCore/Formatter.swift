@@ -17,9 +17,19 @@ public final class MegapromptBuilder {
 
     for file in files {
       let rel = file.pathRelative(to: root)
+
+      // Read as raw Data and decode as UTF-8; skip with a warning if decoding fails.
+      guard let data = try? Data(contentsOf: file) else {
+        Console.warn("Unable to read file: \(rel)")
+        continue
+      }
+      guard let content = String(data: data, encoding: .utf8) else {
+        Console.warn("Skipping non-UTF8 file: \(rel)")
+        continue
+      }
+
       parts.append("<\(rel)>")
       parts.append("<![CDATA[")
-      let content = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
       parts.append(content)
       parts.append("]]>")
       parts.append("</\(rel)>")

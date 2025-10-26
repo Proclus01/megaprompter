@@ -58,9 +58,9 @@ public extension DiagnosticsReport {
           "severity": d.severity.rawValue,
           "code": d.code ?? ""
         ]
-        parts.append("    <error file=\"\(attrs["file"]!)\" line=\"\(attrs["line"]!)\" column=\"\(attrs["column"]!)\" severity=\"\(attrs["severity"]!)\" code=\"\(escapeAttr(attrs["code"]!))\">")
+        parts.append("    <issue file=\"\(attrs["file"]!)\" line=\"\(attrs["line"]!)\" column=\"\(attrs["column"]!)\" severity=\"\(attrs["severity"]!)\" code=\"\(escapeAttr(attrs["code"]!))\">")
         parts.append("      <![CDATA[\(d.message)]]>")
-        parts.append("    </error>")
+        parts.append("    </issue>")
       }
       let errCount = ld.issues.filter { $0.severity == .error }.count
       let warnCount = ld.issues.filter { $0.severity == .warning }.count
