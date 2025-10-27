@@ -8,7 +8,8 @@ let package = Package(
   ],
   products: [
     .executable(name: "megaprompt", targets: ["Megaprompter"]),
-    .executable(name: "megadiagnose", targets: ["MegaDiagnose"])
+    .executable(name: "megadiagnose", targets: ["MegaDiagnose"]),
+    .executable(name: "megatest", targets: ["MegaTest"])
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.6.1")
@@ -20,6 +21,12 @@ let package = Package(
     ),
     .target(
       name: "MegaDiagnoserCore",
+      dependencies: [
+        "MegaprompterCore"
+      ]
+    ),
+    .target(
+      name: "MegaTesterCore",
       dependencies: [
         "MegaprompterCore"
       ]
@@ -41,6 +48,14 @@ let package = Package(
         .product(name: "ArgumentParser", package: "swift-argument-parser")
       ]
     ),
+    .executableTarget(
+      name: "MegaTest",
+      dependencies: [
+        "MegaTesterCore",
+        "MegaprompterCore",
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
+      ]
+    ),
 
     // Tests
     .testTarget(
@@ -51,6 +66,10 @@ let package = Package(
     .testTarget(
       name: "MegaDiagnoserCoreTests",
       dependencies: ["MegaDiagnoserCore"]
+    ),
+    .testTarget(
+      name: "MegaTesterCoreTests",
+      dependencies: ["MegaTesterCore"]
     )
   ]
 )
