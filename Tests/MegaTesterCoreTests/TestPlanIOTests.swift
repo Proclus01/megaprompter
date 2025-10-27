@@ -21,7 +21,9 @@ final class TestPlanIOTests: XCTestCase {
       meta: [:]
     )
     let sc = ScenarioSuggestion(level: .unit, title: "t", rationale: "r", steps: [], inputs: [], assertions: [])
-    let lp = LanguagePlan(name: "swift", frameworks: ["XCTest"], subjects: [SubjectPlan(subject: sub, scenarios: [sc])], testFilesFound: 0)
+    let cov = Coverage(flag: .red, status: "MISSING", score: 0, evidence: [], notes: [])
+    let sp = SubjectPlan(subject: sub, scenarios: [sc], coverage: cov)
+    let lp = LanguagePlan(name: "swift", frameworks: ["XCTest"], subjects: [sp], testFilesFound: 0)
     let plan = TestPlanReport(languages: [lp], generatedAt: "now", summary: PlanSummary(totalLanguages: 1, totalSubjects: 1, totalScenarios: 1))
 
     let xml = plan.toXML()

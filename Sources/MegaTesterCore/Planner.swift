@@ -13,7 +13,7 @@ public final class TestPlanner {
     self.ignoreNames = Set(ignoreNames)
     self.ignoreGlobs = ignoreGlobs
     self.limitSubjects = max(50, limitSubjects)
-    self.maxAnalyzeBytes = max(20_000, maxAnalyzeBytes) // sanity floor
+    self.maxAnalyzeBytes = max(20_000, maxAnalyzeBytes)
   }
 
   public func buildPlan(profile: ProjectProfile, files: [URL], levels: LevelSet) throws -> TestPlanReport {
@@ -47,9 +47,7 @@ public final class TestPlanner {
 
         guard let data = try? Data(contentsOf: f), var content = String(data: data, encoding: .utf8) else { continue }
         if content.utf8.count > maxAnalyzeBytes {
-          // Trim to ~maxAnalyzeBytes characters to keep regex and lowercasing cheap
-          let approxChars = maxAnalyzeBytes
-          content = String(content.prefix(approxChars))
+          content = String(content.prefix(maxAnalyzeBytes))
         }
 
         let subjects = Heuristics.analyzeFile(url: f, content: content, lang: lang)
@@ -73,18 +71,28 @@ public final class TestPlanner {
       perLangTestFiles[lang] = count
     }
 
-    // Build subject plans with scenarios
+    // Compute coverage for all subjects vs. test files
+    let allSubjects = perLangSubjects.flatMap { $0.value }
+    let coverageMap = TestCoverageAssessor.assess(subjects: allSubjects, testFiles: testFiles, maxAnalyzeBytes: maxAnalyzeBytes)
+
+    // Build subject plans with scenarios (suppress for green coverage)
     var langPlans: [LanguagePlan] = []
     var totalScenarios = 0
 
     for lang in perLangSubjects.keys.sorted() {
       let subs = perLangSubjects[lang] ?? []
       let fw = frameworks[lang] ?? []
-      let subjectPlans: [SubjectPlan] = subs.map { subj in
-        let scenarios = ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels)
+      var subjectPlans: [SubjectPlan] = []
+      subjectPlans.reserveCapacity(subs.count)
+
+      for subj in subs {
+        let cov = coverageMap[subj.id] ?? Coverage.missing()
+        let scenariosRaw = ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels)
+        let scenarios = (cov.flag == .green) ? [] : scenariosRaw
         totalScenarios += scenarios.count
-        return SubjectPlan(subject: subj, scenarios: scenarios)
+        subjectPlans.append(SubjectPlan(subject: subj, scenarios: scenarios, coverage: cov))
       }
+
       langPlans.append(LanguagePlan(name: lang, frameworks: fw, subjects: subjectPlans, testFilesFound: perLangTestFiles[lang] ?? 0))
     }
 

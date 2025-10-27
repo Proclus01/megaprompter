@@ -102,10 +102,12 @@ public struct ScenarioSuggestion: Codable {
 public struct SubjectPlan: Codable {
   public let subject: TestSubject
   public let scenarios: [ScenarioSuggestion]
+  public let coverage: Coverage
 
-  public init(subject: TestSubject, scenarios: [ScenarioSuggestion]) {
+  public init(subject: TestSubject, scenarios: [ScenarioSuggestion], coverage: Coverage) {
     self.subject = subject
     self.scenarios = scenarios
+    self.coverage = coverage
   }
 }
 
@@ -160,6 +162,16 @@ public extension TestPlanReport {
         if let sig = s.signature, !sig.isEmpty {
           parts.append("      <signature><![CDATA[\(sig)]]></signature>")
         }
+        // Coverage block
+        parts.append("      <coverage flag=\"\(escapeAttr(sp.coverage.flag.rawValue))\" status=\"\(escapeAttr(sp.coverage.status))\" score=\"\(sp.coverage.score)\">")
+        for n in sp.coverage.notes {
+          parts.append("        <note><![CDATA[\(n)]]></note>")
+        }
+        for ev in sp.coverage.evidence {
+          parts.append("        <evidence file=\"\(escapeAttr(ev.file))\" hits=\"\(ev.hits)\" />")
+        }
+        parts.append("      </coverage>")
+
         if !s.params.isEmpty {
           parts.append("      <params>")
           for p in s.params {
@@ -183,26 +195,29 @@ public extension TestPlanReport {
           }
           parts.append("      </meta>")
         }
-        for sc in sp.scenarios {
-          parts.append("      <scenario level=\"\(sc.level.rawValue)\">")
-          parts.append("        <title><![CDATA[\(sc.title)]]></title>")
-          parts.append("        <rationale><![CDATA[\(sc.rationale)]]></rationale>")
-          if !sc.inputs.isEmpty {
-            parts.append("        <inputs>")
-            for i in sc.inputs { parts.append("          <case><![CDATA[\(i)]]></case>") }
-            parts.append("        </inputs>")
+        // Suggested scenarios are suppressed for green/DONE subjects
+        if sp.coverage.flag != .green {
+          for sc in sp.scenarios {
+            parts.append("      <scenario level=\"\(sc.level.rawValue)\">")
+            parts.append("        <title><![CDATA[\(sc.title)]]></title>")
+            parts.append("        <rationale><![CDATA[\(sc.rationale)]]></rationale>")
+            if !sc.inputs.isEmpty {
+              parts.append("        <inputs>")
+              for i in sc.inputs { parts.append("          <case><![CDATA[\(i)]]></case>") }
+              parts.append("        </inputs>")
+            }
+            if !sc.steps.isEmpty {
+              parts.append("        <steps>")
+              for st in sc.steps { parts.append("          <step><![CDATA[\(st)]]></step>") }
+              parts.append("        </steps>")
+            }
+            if !sc.assertions.isEmpty {
+              parts.append("        <assertions>")
+              for a in sc.assertions { parts.append("          <assert><![CDATA[\(a)]]></assert>") }
+              parts.append("        </assertions>")
+            }
+            parts.append("      </scenario>")
           }
-          if !sc.steps.isEmpty {
-            parts.append("        <steps>")
-            for st in sc.steps { parts.append("          <step><![CDATA[\(st)]]></step>") }
-            parts.append("        </steps>")
-          }
-          if !sc.assertions.isEmpty {
-            parts.append("        <assertions>")
-            for a in sc.assertions { parts.append("          <assert><![CDATA[\(a)]]></assert>") }
-            parts.append("        </assertions>")
-          }
-          parts.append("      </scenario>")
         }
         parts.append("    </subject>")
       }

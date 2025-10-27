@@ -17,7 +17,8 @@ final class MegaTesterCoreXMLAttributeEscapingTests: XCTestCase {
       io: IOCapabilities(readsFS: false, writesFS: false, network: false, db: false, env: false, concurrency: false),
       meta: ["k&": #"v<>""#]
     )
-    let sp = SubjectPlan(subject: sub, scenarios: [])
+    let cov = Coverage(flag: .red, status: "MISSING", score: 0, evidence: [], notes: [])
+    let sp = SubjectPlan(subject: sub, scenarios: [], coverage: cov)
     let lp = LanguagePlan(name: "swift", frameworks: [], subjects: [sp], testFilesFound: 0)
     let plan = TestPlanReport(languages: [lp], generatedAt: "now", summary: PlanSummary(totalLanguages: 1, totalSubjects: 1, totalScenarios: 0))
     let xml = plan.toXML()
