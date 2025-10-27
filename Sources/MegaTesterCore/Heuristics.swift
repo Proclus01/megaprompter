@@ -104,8 +104,10 @@ enum JSAnalyzer {
   static func analyze(url: URL, content: String, lang: String) -> [TestSubject] {
     var out: [TestSubject] = []
 
-    // export[ default]? function foo(...)
-    let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:export\s+(?:default\s+)?|)function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"#)
+    // export [default] [async] function foo(...)
+    let fnRe = try! NSRegularExpression(
+      pattern: #"(?m)^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"#
+    )
     content.enumerateMatches(regex: fnRe) { g in
       let name = g[1]
       let params = parseParamsTS(g[2])
@@ -120,8 +122,10 @@ enum JSAnalyzer {
       ))
     }
 
-    // export [default] const foo = (..) => {..}
-    let arrowRe = try! NSRegularExpression(pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*\(([^)]*)\)\s*=>"#)
+    // export [default] const foo = [async] (..) => {..}
+    let arrowRe = try! NSRegularExpression(
+      pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>"#
+    )
     content.enumerateMatches(regex: arrowRe) { g in
       let name = g[1]
       let params = parseParamsTS(g[2])
@@ -135,7 +139,9 @@ enum JSAnalyzer {
     }
 
     // export const foo = function(...) { ... }
-    let assignFnRe = try! NSRegularExpression(pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*function\s*\(([^)]*)\)"#)
+    let assignFnRe = try! NSRegularExpression(
+      pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*(?:async\s+)?function\s*\(([^)]*)\)"#
+    )
     content.enumerateMatches(regex: assignFnRe) { g in
       let name = g[1]
       let params = parseParamsTS(g[2])
@@ -494,7 +500,6 @@ enum JavaAnalyzer {
     }
   }
 
-  // Changed from private to internal (default) so KotlinAnalyzer can reuse it.
   static func detectHttpMethod(fromAnnotation raw: String) -> String {
     if raw.contains("@GetMapping") { return "GET" }
     if raw.contains("@PostMapping") { return "POST" }
