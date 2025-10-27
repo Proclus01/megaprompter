@@ -39,7 +39,7 @@ public final class ProjectScanner {
         Console.warn("Error enumerating \(url.path): \(err.localizedDescription)")
         return true
       }
-    ) as? FileManager.DirectoryEnumerator else {
+    ) else {
       return []
     }
 
@@ -90,11 +90,15 @@ public final class ProjectScanner {
       return false
     }
 
-    let name = url.lastPathComponent
+    let nameOrig = url.lastPathComponent
+    let name = nameOrig.lowercased()
     let ext = url.pathExtension.isEmpty ? "" : ".\(url.pathExtension)".lowercased()
 
+    // Skip common minified bundle explicitly (extension-based won't catch foo.min.js)
+    if name.hasSuffix(".min.js") { return false }
+
     // Skip secrets/noise/locks explicitly
-    if rules.excludeNames.contains(name) { return false }
+    if rules.excludeNames.contains(nameOrig) { return false }
     if rules.excludeExts.contains(ext) { return false }
 
     // Explicitly skip .env* files

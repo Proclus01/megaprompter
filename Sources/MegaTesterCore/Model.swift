@@ -209,15 +209,15 @@ public extension TestPlanReport {
       parts.append("  </language>")
     }
     parts.append("  <summary languages=\"\(summary.totalLanguages)\" subjects=\"\(summary.totalSubjects)\" scenarios=\"\(summary.totalScenarios)\"/>")
-    let prompt = TestPrompter.generateTestPrompt(from: self, root: nil, levels: LevelSet(include: Set(TestLevel.allCases)))
-    parts.append("  <test_prompt>")
-    parts.append("    <![CDATA[\(prompt)]]>")
-    parts.append("  </test_prompt>")
     parts.append("</test_plan>")
     return parts.joined(separator: "\n")
   }
 }
 
 private func escapeAttr(_ s: String) -> String {
-  s.replacingOccurrences(of: "\"", with: "&quot;")
+  return s
+    .replacingOccurrences(of: "&", with: "&amp;")
+    .replacingOccurrences(of: "\"", with: "&quot;")
+    .replacingOccurrences(of: "<", with: "&lt;")
+    .replacingOccurrences(of: ">", with: "&gt;")
 }

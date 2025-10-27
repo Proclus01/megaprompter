@@ -120,13 +120,13 @@ enum FuzzInputs {
     for p in ps.prefix(8) {
       let t = (p.typeHint ?? "").lowercased()
       let n = p.name.lowercased()
-      if t.contains("int") || t.contains("float") || t.contains("double") || t.contains("number") || n.contains("count") || n.contains("limit") || n.contains("size") {
+      if t.contains("int") || t.contains("float") || t.contains("double") || t.contains("number") || n.contains("count") || n.contains("limit") || n.contains("size") || n.contains("retries") || n.contains("attempts") {
         cases += [
           "\(p.name)=0, 1, -1",
-          "\(p.name)=max int, very large value",
+          "\(p.name)=very large value",
           "\(p.name)=NaN/Inf (if floating-point)"
         ]
-      } else if t.contains("string") || n.contains("name") || n.contains("id") || n.contains("path") || n.contains("text") {
+      } else if t.contains("string") || n.contains("name") || n.contains("id") || n.contains("path") || n.contains("text") || n.contains("url") || n.contains("email") {
         cases += [
           "\(p.name)=\"\" (empty), whitespace-only",
           "\(p.name) very long (10k chars), unicode/emoji",
@@ -151,9 +151,25 @@ enum FuzzInputs {
           "\(p.name) invalid/malformed value"
         ]
       }
+      // Extra heuristics by name
+      if n.contains("timeout") || n.contains("ms") || n.contains("delay") {
+        cases += ["\(p.name)=0 (no wait), \(p.name)=1ms, \(p.name)=very large, \(p.name) negative"]
+      }
+      if n.contains("port") {
+        cases += ["\(p.name)=-1, 0, 80, 443, 65535, 65536 (invalid)"]
+      }
+      if n.contains("url") {
+        cases += ["\(p.name) invalid ('not a url'), http://example, https://example.com/path?x=1"]
+      }
+      if n.contains("path") {
+        cases += ["\(p.name)='..', '/', '/tmp/file', very long nested path"]
+      }
+      if n.contains("email") {
+        cases += ["\(p.name)='user@example.com', 'user+tag@example.com', 'not-an-email'"]
+      }
       if p.optional { cases.append("\(p.name)=nil/undefined") }
     }
-    return Array(cases.prefix(20))
+    return Array(cases.prefix(24))
   }
 
   static func apiPayloads(forPath: String, method: String) -> [String] {

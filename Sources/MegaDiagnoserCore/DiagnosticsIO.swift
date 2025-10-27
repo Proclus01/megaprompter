@@ -66,7 +66,10 @@ public enum DiagnosticsIO {
   }
 
   private static func escapeAttr(_ s: String) -> String {
-    return s.replacingOccurrences(of: "\"", with: "&quot;")
+    return s
+      .replacingOccurrences(of: "&", with: "&amp;")
+      .replacingOccurrences(of: "\"", with: "&quot;")
+      .replacingOccurrences(of: "<", with: "&lt;")
+      .replacingOccurrences(of: ">", with: "&gt;")
   }
 }
-

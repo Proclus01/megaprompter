@@ -42,11 +42,17 @@ struct MegaTestCLI: ParsableCommand {
   var artifactDir: String?
 
   @Option(
-    name: [.customLong("ignore"), .customShort("I"), .short],
+    name: [.customLong("ignore"), .customShort("I"), .customShort("i")],
     parsing: .upToNextOption,
     help: ArgumentHelp("Directory names or glob paths to ignore (repeatable). Examples: --ignore data --ignore docs/generated/**")
   )
   var ignore: [String] = []
+
+  @Option(name: .long, help: "Skip files larger than this many bytes during scanning (default: 1500000).")
+  var maxFileBytes: Int = 1_500_000
+
+  @Option(name: .long, help: "Analyze at most this many bytes of each file for heuristics (default: 200000).")
+  var maxAnalyzeBytes: Int = 200_000
 
   func run() throws {
     let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
@@ -94,18 +100,18 @@ struct MegaTestCLI: ParsableCommand {
     // Collect files with same rules as megaprompt
     let scanner = ProjectScanner(
       profile: profile,
-      maxFileBytes: 1_500_000,
+      maxFileBytes: maxFileBytes,
       extraPruneDirNames: ignoreNames,
       extraPruneGlobs: ignoreGlobs
     )
     let files = try scanner.collectFiles()
 
     // Build test plan
-    let planner = TestPlanner(root: root, ignoreNames: ignoreNames, ignoreGlobs: ignoreGlobs, limitSubjects: limitSubjects)
+    let planner = TestPlanner(root: root, ignoreNames: ignoreNames, ignoreGlobs: ignoreGlobs, limitSubjects: limitSubjects, maxAnalyzeBytes: maxAnalyzeBytes)
     let plan = try planner.buildPlan(profile: profile, files: files, levels: levelSet)
 
     // Outputs
-    let xml = plan.toXML()
+    let xml = plan.toXML() // Embedded prompt is not included; artifact carries prompt with selected levels.
     let jsonData = try JSONEncoder().encode(plan)
     let json = String(decoding: jsonData, as: UTF8.self)
     let prompt = TestPrompter.generateTestPrompt(from: plan, root: root, levels: levelSet)

@@ -15,7 +15,7 @@ public enum Glob {
       includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
       options: [.skipsHiddenFiles],
       errorHandler: nil
-    ) as? FileManager.DirectoryEnumerator else {
+    ) else {
       return matches
     }
     while let item = enumerator.nextObject() as? URL {

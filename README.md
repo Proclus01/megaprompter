@@ -13,7 +13,6 @@ All tools are safe-by-default, language-aware, and tuned for LLM usage and code 
 ## Build & Install
 
 ```bash
-# Clone this repository, then:
 swift package resolve
 swift build -c release
 ```
@@ -21,14 +20,12 @@ swift build -c release
 Add the executables to your PATH (macOS examples):
 
 ```bash
-# If /usr/local/bin requires elevated permissions:
 sudo ln -sf "$PWD/.build/release/megaprompt" /usr/local/bin/megaprompt
 sudo ln -sf "$PWD/.build/release/megadiagnose" /usr/local/bin/megadiagnose
 sudo ln -sf "$PWD/.build/release/megatest" /usr/local/bin/megatest
 ```
 
-If you saw “Permission denied” while linking, re-run with sudo as above.  
-To update later, rebuild and re-link.
+Re-run with sudo if you hit “Permission denied”. To update later, rebuild and re-link.
 
 ---
 
@@ -44,7 +41,7 @@ All CLIs refuse to run outside a detected project unless you pass --force.
 
 ## Megaprompter (megaprompt)
 
-Generate a single XML-like megaprompt containing the real source files and essential configs from your project (tests included) — perfect for pasting into LLMs or code review tools.
+Generate a single XML-like megaprompt containing real source files and essential configs (tests included) — perfect for pasting into LLMs or code review tools.
 
 - Safety first: refuses to run outside a code project (override with `--force`).
 - Smart detection: identifies TypeScript/JS, Swift, Python, Go, Rust, Java/Kotlin, C/C++, C#, PHP, Ruby, Terraform, etc.
@@ -53,7 +50,7 @@ Generate a single XML-like megaprompt containing the real source files and essen
 - Output: one blob with each file wrapped as a tag of its relative path and the content in `CDATA`.
 - Persistence + Clipboard: writes `.MEGAPROMPT_YYYYMMDD_HHMMSS` (hidden dotfile) and copies the same text to your clipboard.
 
-### Usage
+### Usage (examples)
 
 ```bash
 megaprompt .
@@ -68,14 +65,14 @@ megaprompt . --max-file-bytes 500000
 
 ## MegaDiagnose (megadiagnose)
 
-A companion CLI that scans your project, runs language‑appropriate compilers/checkers, captures errors/warnings, and emits a compact XML diagnostic summary plus a ready‑to‑use fix prompt for LLMs. It also writes a single-file artifact to your project directory that bundles the XML, JSON, and the fix prompt.
+Scan your project, run language‑appropriate compilers/checkers, capture errors/warnings, and emit a compact XML/JSON diagnostic summary plus a ready‑to‑use fix prompt for LLMs. Writes a single-file artifact in your project directory that bundles the XML, JSON, and the fix prompt.
 
-- Automatic detection of project languages (reuses Megaprompter detector).
+- Auto-detects project languages (reuses Megaprompter detection).
 - Executes relevant tools when available:
   - Swift (SwiftPM): `swift build`
   - TypeScript: `npx -y tsc -p . --noEmit`
   - JavaScript-only projects: try `npx -y tsc --allowJs --checkJs --noEmit`, then fallback to `npx -y eslint -f unix .`, else `npm run -s build`
-  - Go: deep scan across ALL packages (`go list ./...`; `go build -gcflags=all=-e <pkg>`)
+  - Go: deep scan across ALL packages (`go list ./...` + `go build -gcflags=all=-e <pkg>`)
   - Rust: `cargo check --color never`
   - Python: `python3 -m py_compile` on each `.py` file
   - Java: `mvn -q -DskipTests compile` or `gradle -q classes`
@@ -83,8 +80,8 @@ A companion CLI that scans your project, runs language‑appropriate compilers/c
   - XML diagnostics (to stdout by default; configurable via `--xml-out`)
   - JSON diagnostics (`--json-out`)
   - Fix prompt (`--prompt-out`)
-  - Artifact in the target directory: `MEGADIAG_YYYYMMDD_HHMMSS` (visible by default; `--artifact-hidden` for hidden)
-  - Convenience symlink updated on each run: `MEGADIAG_latest` (or `.MEGADIAG_latest`)
+  - Artifact: `MEGADIAG_YYYYMMDD_HHMMSS` (or hidden `.MEGADIAG_*`)
+  - Convenience symlink: `MEGADIAG_latest` (or `.MEGADIAG_latest`)
 
 ### Usage
 
@@ -102,21 +99,22 @@ megadiagnose . --force
 
 ## MegaTest (megatest)
 
-Analyze your repo and produce a comprehensive, language-aware test plan. It identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, and end-to-end. It does not write tests; it outputs an actionable plan and a “write these tests” prompt.
+Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end. It does not write tests; it outputs an actionable plan and a “write these tests” prompt.
 
 - Reuses project detection and scanning rules (same ignores).
-- Lightweight static heuristics (regex-based, fast) for:
-  - TypeScript/JavaScript: exported functions/classes, Express routes
+- Fast, portable heuristics:
+  - TypeScript/JavaScript: exported functions/classes (incl. arrow/assigned), Express/Fastify routes
   - Python: functions/classes, Flask/FastAPI decorators
   - Go: functions, http.HandleFunc/gin routes
   - Rust: pub fn, actix/rocket route macros
-  - Swift: functions/classes/structs/enums
-  - Java: public classes and methods, Spring @GetMapping/@PostMapping/etc.
+  - Swift: functions/classes/structs/enums/inits
+  - Java: classes/interfaces/methods, Spring @GetMapping/@PostMapping/etc.
+  - Kotlin: classes/objects/data classes/fun, Spring annotations, basic Ktor DSL routes
 - Risk & I/O inference:
-  - Branching, concurrency hints
+  - Branching and concurrency hints
   - FS/network/db/env access
 - Suggests:
-  - Unit test fuzz/edge inputs per parameter hints
+  - Unit test fuzz/edge inputs per parameter hints (timeouts/ports/paths/urls/emails, etc.)
   - Integration tests for I/O and concurrency
   - Smoke tests for entrypoints
   - E2E tests for detected endpoints
@@ -124,32 +122,32 @@ Analyze your repo and produce a comprehensive, language-aware test plan. It iden
   - XML test plan (to stdout by default; `--xml-out` to file)
   - JSON test plan (`--json-out`)
   - A test prompt (`--prompt-out`)
-  - Artifact in the target directory: `MEGATEST_YYYYMMDD_HHMMSS` (or hidden `.MEGATEST_*`)
+  - Artifact: `MEGATEST_YYYYMMDD_HHMMSS` (or hidden `.MEGATEST_*`)
   - Convenience symlink: `MEGATEST_latest` (or `.MEGATEST_latest`)
 
 ### Usage
 
 ```bash
-# Write a visible MEGATEST_* artifact and print XML to stdout
+# Visible artifact and XML to stdout
 megatest .
 
 # Hidden artifact and separate prompt file
 megatest . --artifact-hidden --prompt-out test_prompt.txt
 
-# Only generate certain levels (subset of smoke,unit,integration,e2e)
+# Only certain levels (subset of smoke,unit,integration,e2e)
 megatest . --levels unit,integration
 
 # Ignore directories/files by name or glob (repeatable)
 megatest . --ignore data --ignore docs/generated/** --ignore .cache/**
 
-# Save outputs to files in addition to the artifact
-megatest . --xml-out plan.xml --json-out plan.json
+# Save outputs to files and cap file sizes for scanning/analysis
+megatest . --xml-out plan.xml --json-out plan.json --max-file-bytes 800000 --max-analyze-bytes 120000
 ```
 
 #### Command Options
 
 ```
-USAGE: megatest [<path>] [--force] [--limit-subjects <int>] [--levels <csv>] [--xml-out <path>] [--json-out <path>] [--prompt-out <path>] [--show-summary|--no-show-summary] [--artifact-hidden] [--artifact-dir <path>] [--ignore <name-or-glob> ...]
+USAGE: megatest [<path>] [--force] [--limit-subjects <int>] [--levels <csv>] [--xml-out <path>] [--json-out <path>] [--prompt-out <path>] [--show-summary|--no-show-summary] [--artifact-hidden] [--artifact-dir <path>] [--ignore <name-or-glob> ...] [--max-file-bytes <int>] [--max-analyze-bytes <int>]
 
 ARGUMENTS:
   <path>                 Target directory ('.' by default). Accepts relative or absolute paths.
@@ -168,56 +166,38 @@ OPTIONS:
   --ignore               Directory names or glob paths to ignore (repeatable).
                          Examples: --ignore data --ignore docs/generated/**
                          Short aliases: -I, -i
+  --max-file-bytes       Skip files larger than this many bytes during scanning (default: 1500000).
+  --max-analyze-bytes    Analyze at most this many bytes of each file for heuristics (default: 200000).
   -h, --help             Show help information.
 ```
 
 ### What it Writes
 
-- A single artifact file in your target directory (or `--artifact-dir`):
+- Artifact file in your target directory (or `--artifact-dir`):
   - Visible: `MEGATEST_YYYYMMDD_HHMMSS`
-  - Hidden: `.MEGATEST_YYYYMMDD_HHMMSS` (if `--artifact-hidden` is used)
+  - Hidden: `.MEGATEST_YYYYMMDD_HHMMSS` (if `--artifact-hidden`)
 - The artifact is a pseudo‑XML envelope that embeds:
-  - `<xml>`: the XML test plan summary and a test_prompt section.
-  - `<json>`: the same plan in JSON.
-  - `<test_prompt>`: a short, actionable prompt for LLMs to produce tests.
+  - `<xml>`: the XML test plan summary
+  - `<json>`: the same plan in JSON
+  - `<test_prompt>`: a short, actionable prompt for LLMs to produce tests (respects `--levels`)
 - A convenience symlink to the most recent artifact:
   - `MEGATEST_latest` (visible) or `.MEGATEST_latest` (hidden)
+
+Note for Windows users:
+- Creating symlinks for `*_latest` may require Developer Mode or admin privileges.
 
 ---
 
 ## Safety Features (all tools)
 
 - Refuse to run if the target directory doesn’t look like a code project (use `--force` to override).
-- Skip oversized files by default (megaprompt `--max-file-bytes`) to avoid grabbing huge artifacts.
-- Skip `.env*` and common secret/binary extensions in megaprompt selection rules.
+- Skip oversized files by default (megaprompt/megatest `--max-file-bytes`) to avoid huge artifacts.
+- Skip `.env*` and common secret/binary extensions in megaprompt’s selection rules.
 - Tool invocations (megadiagnose) are timed out per-tool.
 
 ---
 
-## Troubleshooting
-
-- Permission denied while linking  
-  Use sudo when linking into system paths:
-
-  ```bash
-  sudo ln -sf "$PWD/.build/release/megaprompt" /usr/local/bin/megaprompt
-  sudo ln -sf "$PWD/.build/release/megadiagnose" /usr/local/bin/megadiagnose
-  sudo ln -sf "$PWD/.build/release/megatest" /usr/local/bin/megatest
-  ```
-
-  Alternatively, link into a user‑writable PATH directory (e.g., `~/bin`) and ensure it’s on your PATH.
-
-- Clipboard didn’t copy (megaprompt)  
-  The tool tries `pbcopy` → `wl-copy` → `xclip` → `xsel` → (Windows) `clip`. If none are present, it still writes the `.MEGAPROMPT_*` file. Install one of those tools or copy from the file manually.
-
-- Too many files included/excluded (megaprompt)  
-  Use `--dry-run --show-summary` to see the exact file list. If you need different behavior, adjust `Sources/MegaprompterCore/Rules.swift` or exclude specific directories/paths at runtime with `--ignore`.
-
----
-
 ## Development
-
-Build and test:
 
 ```bash
 swift build
@@ -240,7 +220,6 @@ swift run megatest .
 sudo rm -f /usr/local/bin/megaprompt
 sudo rm -f /usr/local/bin/megadiagnose
 sudo rm -f /usr/local/bin/megatest
-# (or wherever you linked them)
 ```
 
 ---

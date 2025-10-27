@@ -9,7 +9,8 @@ enum Heuristics {
     "go":"go",
     "rs":"rust",
     "swift":"swift",
-    "java":"java"
+    "java":"java",
+    "kt":"kotlin","kts":"kotlin"
   ]
 
   static func language(for url: URL) -> String? {
@@ -25,6 +26,7 @@ enum Heuristics {
     case "rust": return RsAnalyzer.analyze(url: url, content: content)
     case "swift": return SwAnalyzer.analyze(url: url, content: content)
     case "java": return JavaAnalyzer.analyze(url: url, content: content)
+    case "kotlin": return KotlinAnalyzer.analyze(url: url, content: content)
     default: return []
     }
   }
@@ -37,34 +39,35 @@ enum Risk {
     var score = 1
     var factors: [String] = []
 
-    let branchWords = [" if"," else"," switch"," case"," for"," while"," try"," catch"," guard"," defer"," when"," match"]
-    let concurrencyWords = ["async","await","goroutine","go ","chan","thread","DispatchQueue","Task","tokio","spawn","Executor","CompletableFuture"]
-    let fsWords = ["fs.","FileManager","open(","readFile","writeFile","os.Open","os.Create","pathlib","io.open","java.nio","Files."]
-    let netWords = ["http.","fetch","URLSession","requests","axios","reqwest","net/http",".GET(","@GetMapping","#[get(","HttpClient"]
-    let dbWords = ["database/sql","gorm","sqlalchemy","psycopg2","pg.","mongoose","MongoClient","redis","JPA","EntityManager","CoreData","ORM"]
-    let envWords = ["process.env","os.environ","getenv","Environment."]
+    let lower = s.lowercased()
 
-    func approximateCount(_ needles: [String]) -> Int {
-      let lower = s.lowercased()
+    let branchWords = [" if"," else"," switch"," case"," for"," while"," try"," catch"," guard"," defer"," when"," match"]
+    let concurrencyWords = ["async","await","goroutine","go ","chan","thread","dispatchqueue","task","tokio","spawn","executor","completablefuture"]
+    let fsWords = ["fs.","filemanager","open(","readfile","writefile","os.open","os.create","pathlib","io.open","java.nio","files."]
+    let netWords = ["http.","fetch","urlsession","requests","axios","reqwest","net/http",".get(","@getmapping","#\\[get(","httpclient"]
+    let dbWords = ["database/sql","gorm","sqlalchemy","psycopg2","pg.","mongoose","mongoclient","redis","jpa","entitymanager","coredata","orm"]
+    let envWords = ["process.env","os.environ","getenv","environment."]
+
+    func approximateCount(lower: String, _ needles: [String]) -> Int {
       var total = 0
       for n in needles {
-        let parts = lower.components(separatedBy: n.lowercased())
+        let parts = lower.components(separatedBy: n)
         if parts.count > 1 { total += parts.count - 1 }
       }
       return total
     }
 
-    let branches = approximateCount(branchWords)
+    let branches = approximateCount(lower: lower, branchWords)
     score += min(5, branches / 2)
     if branches > 0 { factors.append("branches ~\(branches)") }
 
-    let conc = approximateCount(concurrencyWords)
+    let conc = approximateCount(lower: lower, concurrencyWords)
     if conc > 0 { score += 2; factors.append("concurrency hints") }
 
-    let fs = approximateCount(fsWords) > 0
-    let net = approximateCount(netWords) > 0
-    let db = approximateCount(dbWords) > 0
-    let env = approximateCount(envWords) > 0
+    let fs = approximateCount(lower: lower, fsWords) > 0
+    let net = approximateCount(lower: lower, netWords) > 0
+    let db = approximateCount(lower: lower, dbWords) > 0
+    let env = approximateCount(lower: lower, envWords) > 0
 
     var ioFlags: [String] = []
     if fs { score += 1; ioFlags.append("fs") }
@@ -80,17 +83,17 @@ enum Risk {
   }
 
   static func ioFlags(in s: String) -> IOCapabilities {
+    let lower = s.lowercased()
     func has(_ substrings: [String]) -> Bool {
-      let lower = s.lowercased()
-      for x in substrings { if lower.contains(x.lowercased()) { return true } }
+      for x in substrings { if lower.contains(x) { return true } }
       return false
     }
-    let readsFS = has(["readFile","open(","os.Open","FileManager","io.open","Files.read"])
-    let writesFS = has(["writeFile","fs.write","os.Create","os.Write","FileManager.default.create","Files.write"])
-    let network = has(["http.","fetch","URLSession","requests","axios","reqwest","net/http","HttpClient"])
-    let db = has(["database/sql","gorm","sqlalchemy","psycopg2","mongo","mongoose","redis","EntityManager","JPA"])
-    let env = has(["process.env","os.environ","getenv","Environment."])
-    let concurrency = has(["async","await","go ","chan","thread","DispatchQueue","Task","tokio","spawn","Executor","CompletableFuture"])
+    let readsFS = has(["readfile","open(","os.open","filemanager","io.open","files.read"])
+    let writesFS = has(["writefile","fs.write","os.create","os.write","filemanager.default.create","files.write"])
+    let network = has(["http.","fetch","urlsession","requests","axios","reqwest","net/http","httpclient"])
+    let db = has(["database/sql","gorm","sqlalchemy","psycopg2","mongo","mongoose","redis","entitymanager","jpa"])
+    let env = has(["process.env","os.environ","getenv","environment."])
+    let concurrency = has(["async","await","go ","chan","thread","dispatchqueue","task","tokio","spawn","executor","completablefuture"])
     return IOCapabilities(readsFS: readsFS, writesFS: writesFS, network: network, db: db, env: env, concurrency: concurrency)
   }
 }
@@ -101,39 +104,83 @@ enum JSAnalyzer {
   static func analyze(url: URL, content: String, lang: String) -> [TestSubject] {
     var out: [TestSubject] = []
 
-    // export function foo(a: number, b?: string) { ... }
-    let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:export\s+)?function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"#)
+    // export[ default]? function foo(...)
+    let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:export\s+(?:default\s+)?|)function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"#)
     content.enumerateMatches(regex: fnRe) { g in
       let name = g[1]
       let params = parseParamsTS(g[2])
       let sig = "function \(name)(\(g[2]))"
       let (score, factors) = Risk.scoreAndFactors(in: blockFor(name: name, in: content) ?? content, lang: lang)
       let io = Risk.ioFlags(in: content)
+      let exported = content.contains("export function \(name)") || content.contains("export default function \(name)") || content.contains("export { \(name) }")
       out.append(TestSubject(
         id: "\(url.path)#fn:\(name)", kind: .function, language: lang, name: name,
-        path: url.path, signature: sig, exported: content.contains("export function \(name)") || content.contains("export default function \(name)"),
+        path: url.path, signature: sig, exported: exported,
         params: params, riskScore: score, riskFactors: factors, io: io, meta: [:]
       ))
     }
 
-    // class Foo { bar(x) { ... } }
-    let clsRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:export\s+)?class\s+([A-Za-z_]\w*)"#)
+    // export [default] const foo = (..) => {..}
+    let arrowRe = try! NSRegularExpression(pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*\(([^)]*)\)\s*=>"#)
+    content.enumerateMatches(regex: arrowRe) { g in
+      let name = g[1]
+      let params = parseParamsTS(g[2])
+      let (score, factors) = Risk.scoreAndFactors(in: blockFor(name: name, in: content) ?? content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#fn:\(name)", kind: .function, language: lang, name: name,
+        path: url.path, signature: "const \(name) = (\(g[2])) =>", exported: true,
+        params: params, riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
+
+    // export const foo = function(...) { ... }
+    let assignFnRe = try! NSRegularExpression(pattern: #"(?m)^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*function\s*\(([^)]*)\)"#)
+    content.enumerateMatches(regex: assignFnRe) { g in
+      let name = g[1]
+      let params = parseParamsTS(g[2])
+      let (score, factors) = Risk.scoreAndFactors(in: blockFor(name: name, in: content) ?? content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#fn:\(name)", kind: .function, language: lang, name: name,
+        path: url.path, signature: "const \(name) = function(\(g[2]))", exported: true,
+        params: params, riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
+
+    // class Foo { ... } (export class or export default class)
+    let clsRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:export\s+(?:default\s+)?|)class\s+([A-Za-z_]\w*)"#)
     content.enumerateMatches(regex: clsRe) { g in
       let name = g[1]
       let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
       let io = Risk.ioFlags(in: content)
+      let exported = content.contains("export class \(name)") || content.contains("export default class \(name)")
       out.append(TestSubject(
         id: "\(url.path)#class:\(name)", kind: .class, language: lang, name: name,
-        path: url.path, signature: "class \(name)", exported: content.contains("export class \(name)") || content.contains("export default class \(name)"),
+        path: url.path, signature: "class \(name)", exported: exported,
         params: [], riskScore: score, riskFactors: factors, io: io, meta: [:]
       ))
     }
 
-    // Express-style endpoints: app.get('/path', ...) or router.post('/path', ...)
-    let routeRe = try! NSRegularExpression(pattern: #"(?m)\b(app|router)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#)
+    // Web routes: app|router|server|fastify.method('/path', ...)
+    let routeRe = try! NSRegularExpression(pattern: #"(?m)\b(app|router|server|fastify)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#)
     content.enumerateMatches(regex: routeRe) { g in
       let method = g[2].uppercased()
       let path = g[3]
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#endpoint:\(method) \(path)", kind: .endpoint, language: lang, name: "\(method) \(path)",
+        path: url.path, signature: nil, exported: true, params: [],
+        riskScore: score, riskFactors: ["http route"] + factors, io: io, meta: ["method": method, "path": path]
+      ))
+    }
+
+    // new Router().get('/path', ...)
+    let routerNewRe = try! NSRegularExpression(pattern: #"(?m)new\s+Router\(\)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#)
+    content.enumerateMatches(regex: routerNewRe) { g in
+      let method = g[1].uppercased()
+      let path = g[2]
       let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
       let io = Risk.ioFlags(in: content)
       out.append(TestSubject(
@@ -199,7 +246,7 @@ enum PyAnalyzer {
       ))
     }
 
-    // Flask/FastAPI-like: @app.(get|post)(...)
+    // Flask/FastAPI-like: @app.(get|post|...)
     let routeRe = try! NSRegularExpression(pattern: #"(?m)^\s*@(?:app|router)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#)
     content.enumerateMatches(regex: routeRe) { g in
       let method = g[1].uppercased()
@@ -208,8 +255,7 @@ enum PyAnalyzer {
       let io = Risk.ioFlags(in: content)
       out.append(TestSubject(
         id: "\(url.path)#endpoint:\(method) \(path)", kind: .endpoint, language: lang, name: "\(method) \(path)",
-        path: url.path, signature: nil, exported: true, params: [],
-        riskScore: score, riskFactors: ["http route"] + factors, io: io, meta: ["method": method, "path": path]
+        path: url.path, signature: nil, exported: true, params: [], riskScore: score, riskFactors: ["http route"] + factors, io: io, meta: ["method": method, "path": path]
       ))
     }
 
@@ -233,7 +279,7 @@ enum GoAnalyzer {
   static func analyze(url: URL, content: String) -> [TestSubject] {
     var out: [TestSubject] = []
     let lang = "go"
-    // func Name(a int, b string) OR func (r T) Name(...)
+    // func Name(...) OR method receiver
     let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*func\s*(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(([^)]*)\)"#)
     content.enumerateMatches(regex: fnRe) { g in
       let name = g[1]
@@ -248,7 +294,7 @@ enum GoAnalyzer {
       ))
     }
 
-    // http.HandleFunc("/path", handler) / gin: r.GET("/path", ...)
+    // http.HandleFunc("/path", ...) or gin: r.GET("/path", ...)
     let routeRe = try! NSRegularExpression(pattern: #"(?m)(?:http\.HandleFunc|\.GET|\.POST|\.PUT|\.DELETE)\(\s*["']([^"']+)["']"#)
     content.enumerateMatches(regex: routeRe) { g in
       let method = detectMethod(around: g[0], in: content)
@@ -344,6 +390,17 @@ enum SwAnalyzer {
         params: parseParamsSwift(g[2]), riskScore: score, riskFactors: factors, io: io, meta: [:]
       ))
     }
+    // init(...) as constructor to flag entrypoints for smoke tests
+    let initRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:public|open|internal|fileprivate|private)?\s*init\s*\(([^)]*)\)"#)
+    content.enumerateMatches(regex: initRe) { g in
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#init", kind: .function, language: lang, name: "init",
+        path: url.path, signature: "init(\(g[1]))", exported: true,
+        params: parseParamsSwift(g[1]), riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
     // Classes/structs/enums
     let typeRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:public|open|internal|fileprivate|private)?\s*(class|struct|enum)\s+([A-Za-z_]\w*)"#)
     content.enumerateMatches(regex: typeRe) { g in
@@ -387,7 +444,18 @@ enum JavaAnalyzer {
         path: url.path, signature: "public class \(name)", exported: true, params: [], riskScore: score, riskFactors: factors, io: io, meta: [:]
       ))
     }
-    // public static ... foo(...)
+    // public interface X
+    let intfRe = try! NSRegularExpression(pattern: #"(?m)^\s*public\s+interface\s+([A-Za-z_]\w*)"#)
+    content.enumerateMatches(regex: intfRe) { g in
+      let name = g[1]
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#class:\(name)", kind: .class, language: lang, name: name,
+        path: url.path, signature: "public interface \(name)", exported: true, params: [], riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
+    // public/protected/private static? returnType name(...)
     let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:public|protected|private)\s+(?:static\s+)?[A-Za-z0-9_<>\[\]]+\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{"#)
     content.enumerateMatches(regex: fnRe) { g in
       let name = g[1]
@@ -426,12 +494,88 @@ enum JavaAnalyzer {
     }
   }
 
-  private static func detectHttpMethod(fromAnnotation raw: String) -> String {
+  // Changed from private to internal (default) so KotlinAnalyzer can reuse it.
+  static func detectHttpMethod(fromAnnotation raw: String) -> String {
     if raw.contains("@GetMapping") { return "GET" }
     if raw.contains("@PostMapping") { return "POST" }
     if raw.contains("@PutMapping") { return "PUT" }
     if raw.contains("@DeleteMapping") { return "DELETE" }
     return "GET"
+  }
+}
+
+enum KotlinAnalyzer {
+  static func analyze(url: URL, content: String) -> [TestSubject] {
+    var out: [TestSubject] = []
+    let lang = "kotlin"
+
+    // class/object/data class
+    let typeRe = try! NSRegularExpression(pattern: #"(?m)^\s*(data\s+class|class|object)\s+([A-Za-z_]\w*)"#)
+    content.enumerateMatches(regex: typeRe) { g in
+      let kind = g[1]
+      let name = g[2]
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#class:\(name)", kind: .class, language: lang, name: name,
+        path: url.path, signature: "\(kind) \(name)", exported: true, params: [], riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
+
+    // fun name(args)
+    let fnRe = try! NSRegularExpression(pattern: #"(?m)^\s*(?:public\s+)?fun\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"#)
+    content.enumerateMatches(regex: fnRe) { g in
+      let name = g[1]
+      let params = parseParamsKt(g[2])
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#fn:\(name)", kind: .function, language: lang, name: name,
+        path: url.path, signature: "fun \(name)(\(g[2]))", exported: true,
+        params: params, riskScore: score, riskFactors: factors, io: io, meta: [:]
+      ))
+    }
+
+    // Spring annotations in Kotlin files
+    let routeRe = try! NSRegularExpression(pattern: #"(?m)^\s*@(?:GetMapping|PostMapping|PutMapping|DeleteMapping)\(\s*["']([^"']+)["']"#)
+    content.enumerateMatches(regex: routeRe) { g in
+      let path = g[1]
+      let raw = g[0]
+      let method = JavaAnalyzer.detectHttpMethod(fromAnnotation: raw)
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#endpoint:\(method) \(path)", kind: .endpoint, language: lang, name: "\(method) \(path)",
+        path: url.path, signature: nil, exported: true, params: [], riskScore: score, riskFactors: ["http route"] + factors, io: io, meta: ["method": method, "path": path]
+      ))
+    }
+
+    // Ktor DSL: get("/path") etc.
+    let ktorRe = try! NSRegularExpression(pattern: #"(?m)\b(get|post|put|delete|patch)\(\s*["']([^"']+)["']"#)
+    content.enumerateMatches(regex: ktorRe) { g in
+      let method = g[1].uppercased()
+      let path = g[2]
+      let (score, factors) = Risk.scoreAndFactors(in: content, lang: lang)
+      let io = Risk.ioFlags(in: content)
+      out.append(TestSubject(
+        id: "\(url.path)#endpoint:\(method) \(path)", kind: .endpoint, language: lang, name: "\(method) \(path)",
+        path: url.path, signature: nil, exported: true, params: [], riskScore: score, riskFactors: ["http route"] + factors, io: io, meta: ["method": method, "path": path]
+      ))
+    }
+
+    return out
+  }
+
+  private static func parseParamsKt(_ plist: String) -> [SubjectParam] {
+    let items = plist.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+    return items.compactMap { s in
+      guard !s.isEmpty else { return nil }
+      let parts = s.split(separator: ":").map(String.init)
+      guard parts.count >= 1 else { return nil }
+      let name = parts[0].trimmingCharacters(in: .whitespaces)
+      let type = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : nil
+      return SubjectParam(name: name, typeHint: type, optional: s.contains("="))
+    }
   }
 }
 

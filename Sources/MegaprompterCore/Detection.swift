@@ -84,7 +84,7 @@ public final class ProjectDetector {
       at: root,
       includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
       options: [.skipsHiddenFiles, .skipsPackageDescendants]
-    ) as? FileManager.DirectoryEnumerator else {
+    ) else {
       return ProjectProfile(root: root, languages: languages, markers: markers, isCodeProject: !markers.isEmpty, why: why)
     }
 
