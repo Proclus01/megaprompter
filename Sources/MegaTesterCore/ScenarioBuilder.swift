@@ -19,6 +19,49 @@ enum ScenarioBuilder {
     return out
   }
 
+  static func regressionScenario(_ s: TestSubject, refDescription: String?) -> ScenarioSuggestion {
+    // Targeted, safety-first checks around boundaries and negative paths.
+    let isEndpoint = (s.kind == .endpoint)
+    let baseInputs = isEndpoint
+      ? FuzzInputs.apiPayloads(forPath: s.meta["path"] ?? "/", method: s.meta["method"] ?? "GET")
+      : FuzzInputs.forParams(s.params)
+
+    var title = "Regression for \(s.name)"
+    if let refDescription, !refDescription.isEmpty {
+      title += " (\(refDescription))"
+    }
+    var steps: [String] = []
+    if isEndpoint {
+      steps = [
+        "Start the service with a disposable backing store",
+        "Exercise changed endpoint with payloads below, focusing on edge and invalid cases",
+        "Verify status codes and response schema; then inspect side effects"
+      ]
+    } else {
+      steps = [
+        "Invoke \(s.name) with the edge/negative inputs below",
+        "Assert no crashes/panics/exceptions",
+        "Assert exact outputs at old/new boundary values and error handling for invalid inputs"
+      ]
+    }
+    var assertions: [String] = [
+      "No crash or unhandled exception",
+      "Correct behavior at boundary values and for invalid inputs",
+      "Idempotency (re-running does not corrupt state)"
+    ]
+    if s.io.concurrency {
+      assertions.append("No race conditions or deadlocks under concurrent calls")
+    }
+    return ScenarioSuggestion(
+      level: .regression,
+      title: title,
+      rationale: "Protect against reintroduction of recent issues by testing boundary/negative cases near the change.",
+      steps: steps,
+      inputs: Array(baseInputs.prefix(10)),
+      assertions: assertions
+    )
+  }
+
   private static func unitScenario(_ s: TestSubject) -> ScenarioSuggestion {
     let fuzz = FuzzInputs.forParams(s.params)
     return ScenarioSuggestion(
@@ -151,7 +194,6 @@ enum FuzzInputs {
           "\(p.name) invalid/malformed value"
         ]
       }
-      // Extra heuristics by name
       if n.contains("timeout") || n.contains("ms") || n.contains("delay") {
         cases += ["\(p.name)=0 (no wait), \(p.name)=1ms, \(p.name)=very large, \(p.name) negative"]
       }

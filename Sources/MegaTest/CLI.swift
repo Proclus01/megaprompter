@@ -7,7 +7,7 @@ import MegaTesterCore
 struct MegaTestCLI: ParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "megatest",
-    abstract: "Analyze code to propose a test plan (smoke, unit, integration, e2e) with fuzz/edge cases, and write a MEGATEST_* artifact."
+    abstract: "Analyze code to propose a test plan (smoke, unit, integration, e2e, regression) and write a MEGATEST_* artifact."
   )
 
   @Argument(help: "Target directory ('.' by default). Accepts relative or absolute paths.")
@@ -19,7 +19,7 @@ struct MegaTestCLI: ParsableCommand {
   @Option(name: .long, help: "Limit number of subjects analyzed (default: 500).")
   var limitSubjects: Int = 500
 
-  @Option(name: .long, help: "Comma-separated levels to include: smoke,unit,integration,e2e (default: all).")
+  @Option(name: .long, help: "Comma-separated levels to include: smoke,unit,integration,e2e,regression (default: all).")
   var levels: String?
 
   @Option(name: .long, help: "Write XML output to this file (default: stdout).")
@@ -53,6 +53,16 @@ struct MegaTestCLI: ParsableCommand {
 
   @Option(name: .long, help: "Analyze at most this many bytes of each file for heuristics (default: 200000).")
   var maxAnalyzeBytes: Int = 200_000
+
+  // New: Regression flags
+  @Option(name: .long, help: "Enable regression suggestions by diffing against this git ref (e.g., origin/main, HEAD~1).")
+  var regressionSince: String?
+
+  @Option(name: .long, help: "Enable regression suggestions by diffing this git range A..B (e.g., HEAD~3..HEAD).")
+  var regressionRange: String?
+
+  @Flag(name: .long, help: "Disable regression scenarios entirely.")
+  var noRegression: Bool = false
 
   func run() throws {
     let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
@@ -106,12 +116,24 @@ struct MegaTestCLI: ParsableCommand {
     )
     let files = try scanner.collectFiles()
 
+    // Build regression config
+    let regression: RegressionConfig? = {
+      if noRegression { return RegressionConfig(mode: .disabled) }
+      if let r = regressionRange, !r.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return RegressionConfig(mode: .range(r))
+      }
+      if let s = regressionSince, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return RegressionConfig(mode: .since(s))
+      }
+      return nil
+    }()
+
     // Build test plan
     let planner = TestPlanner(root: root, ignoreNames: ignoreNames, ignoreGlobs: ignoreGlobs, limitSubjects: limitSubjects, maxAnalyzeBytes: maxAnalyzeBytes)
-    let plan = try planner.buildPlan(profile: profile, files: files, levels: levelSet)
+    let plan = try planner.buildPlan(profile: profile, files: files, levels: levelSet, regression: regression)
 
     // Outputs
-    let xml = plan.toXML() // Embedded prompt is not included; artifact carries prompt with selected levels.
+    let xml = plan.toXML()
     let jsonData = try JSONEncoder().encode(plan)
     let json = String(decoding: jsonData, as: UTF8.self)
     let prompt = TestPrompter.generateTestPrompt(from: plan, root: root, levels: levelSet)
@@ -148,6 +170,11 @@ struct MegaTestCLI: ParsableCommand {
       let totalSubjects = plan.languages.reduce(0) { $0 + $1.subjects.count }
       let totalScenarios = plan.languages.reduce(0) { $0 + $1.subjects.reduce(0) { $0 + $1.scenarios.count } }
       Console.info("Subjects: \(totalSubjects), Scenarios: \(totalScenarios)")
+      if let regression {
+        Console.info("Regression mode: \(regression.description)")
+      } else {
+        Console.info("Regression mode: off")
+      }
       for lang in plan.languages {
         Console.info(" - \(lang.name): \(lang.subjects.count) subjects, frameworks: \(lang.frameworks.joined(separator: ", "))")
       }

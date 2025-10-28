@@ -70,6 +70,13 @@ let package = Package(
     .testTarget(
       name: "MegaTesterCoreTests",
       dependencies: ["MegaTesterCore"]
+    ),
+    // New: end-to-end regression tests for MegaTest
+    .testTarget(
+      name: "MegaTestRegressionTests",
+      dependencies: ["MegaTesterCore", "MegaprompterCore", "MegaTest"],
+      path: "Tests/MegaTestRegressionTests"
     )
   ]
 )
+

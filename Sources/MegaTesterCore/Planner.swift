@@ -16,7 +16,7 @@ public final class TestPlanner {
     self.maxAnalyzeBytes = max(20_000, maxAnalyzeBytes)
   }
 
-  public func buildPlan(profile: ProjectProfile, files: [URL], levels: LevelSet) throws -> TestPlanReport {
+  public func buildPlan(profile: ProjectProfile, files: [URL], levels: LevelSet, regression: RegressionConfig? = nil) throws -> TestPlanReport {
     let frameworks = FrameworkDetector.detectFrameworks(root: root)
 
     // Separate test files for metrics but exclude them from subject analysis
@@ -75,7 +75,22 @@ public final class TestPlanner {
     let allSubjects = perLangSubjects.flatMap { $0.value }
     let coverageMap = TestCoverageAssessor.assess(subjects: allSubjects, testFiles: testFiles, maxAnalyzeBytes: maxAnalyzeBytes)
 
-    // Build subject plans with scenarios (suppress for green coverage)
+    // Determine impacted files for regression
+    let impactedRelPaths: Set<String> = {
+      guard let regression else { return [] }
+      switch regression.mode {
+        case .disabled:
+          return []
+        case .since(let ref):
+          let names = GitDiff.changedFilesSince(root: root, ref: ref)
+          return Set(names)
+        case .range(let rr):
+          let names = GitDiff.changedFilesInRange(root: root, range: rr)
+          return Set(names)
+      }
+    }()
+
+    // Build subject plans with scenarios
     var langPlans: [LanguagePlan] = []
     var totalScenarios = 0
 
@@ -87,8 +102,31 @@ public final class TestPlanner {
 
       for subj in subs {
         let cov = coverageMap[subj.id] ?? Coverage.missing()
-        let scenariosRaw = ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels)
-        let scenarios = (cov.flag == .green) ? [] : scenariosRaw
+        var scenarios: [ScenarioSuggestion] = []
+
+        // Build baseline scenarios from requested levels
+        scenarios.append(contentsOf: ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels))
+
+        // Append regression if subject is impacted by diff
+        let relPath = relativize(subj.path, root: root)
+        let isImpacted = impactedRelPaths.contains(relPath)
+        if isImpacted {
+          let desc: String? = {
+            guard let regression else { return nil }
+            switch regression.mode {
+              case .disabled: return nil
+              case .since(let r): return "since \(r)"
+              case .range(let rr): return rr
+            }
+          }()
+          scenarios.append(ScenarioBuilder.regressionScenario(subj, refDescription: desc))
+        }
+
+        // Suppress non-regression scenarios for green coverage; keep regression
+        if cov.flag == .green {
+          scenarios = scenarios.filter { $0.level == .regression }
+        }
+
         totalScenarios += scenarios.count
         subjectPlans.append(SubjectPlan(subject: subj, scenarios: scenarios, coverage: cov))
       }
@@ -109,4 +147,10 @@ private func isoNow() -> String {
   let f = ISO8601DateFormatter()
   f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   return f.string(from: Date())
+}
+
+private func relativize(_ p: String, root: URL) -> String {
+  let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
+  if p.hasPrefix(base) { return String(p.dropFirst(base.count)) }
+  return p
 }

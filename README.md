@@ -4,7 +4,7 @@ Three companion CLIs for working with real project trees:
 
 - megaprompt: Generate a single, copy-paste-friendly megaprompt from your source code and essential configs (tests included).
 - megadiagnose: Scan your project with language-appropriate tools, collect errors/warnings, and emit an XML/JSON diagnostic summary plus a ready-to-use fix prompt.
-- megatest: Analyze your codebase to propose a comprehensive test plan (smoke/unit/integration/e2e) with edge cases and fuzz inputs. It also inspects existing tests and marks coverage per subject:
+- megatest: Analyze your codebase to propose a comprehensive test plan (smoke/unit/integration/e2e/regression) with edge cases and fuzz inputs. It also inspects existing tests and marks coverage per subject:
   - green = DONE (adequate tests found; suggestions suppressed)
   - yellow = PARTIAL (some coverage; suggestions retained)
   - red = MISSING (no coverage; full suggestions)
@@ -78,14 +78,14 @@ megadiagnose . --xml-out diag.xml --json-out diag.json --prompt-out fix_prompt.t
 
 ## MegaTest (megatest)
 
-Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end.
+Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end, regression.
 
 New in this version:
 - Coverage-aware suggestions. Existing tests are analyzed and subjects are flagged:
-  - green = DONE (adequate tests found) → scenarios are suppressed. Artifact shows evidence (file paths) as DONE.
+  - green = DONE (adequate tests found) → non-regression scenarios are suppressed. Artifact shows evidence (file paths) as DONE.
   - yellow = PARTIAL (some coverage) → suggestions kept, prioritized.
   - red = MISSING (no coverage) → full suggestions.
-- The artifact’s XML and JSON contain per-subject coverage details.
+- Regression scenarios: opt-in via git diff. For files changed since a ref or across a range, impacted subjects get a [regression] scenario that is not suppressed even if coverage is green.
 
 Usage examples:
 
@@ -95,5 +95,17 @@ megatest . --levels unit,integration
 megatest . --ignore data --ignore docs/generated/**
 megatest . --xml-out plan.xml --json-out plan.json --prompt-out test_prompt.txt
 megatest . --max-file-bytes 800000 --max-analyze-bytes 120000
+# Regression-focused runs
+megatest . --regression-since origin/main
+megatest . --regression-range HEAD~3..HEAD --levels unit,regression
 ```
+
+Regression flags:
+- --regression-since <git-ref>  Compare <ref>..HEAD; add regression scenarios for impacted subjects.
+- --regression-range A..B       Compare explicit range; add regression scenarios for impacted subjects.
+- --no-regression               Disable regression scenarios.
+
+Notes:
+- Requires git in PATH and a git repository; otherwise a warning is logged and the run continues without regression scenarios.
+- Regression scenarios emphasize boundary/negative cases around the change. For endpoints, they reuse API payload suggestions.
 
