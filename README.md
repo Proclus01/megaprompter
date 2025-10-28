@@ -55,6 +55,25 @@ See CLI help for options like --ignore, --dry-run, --max-file-bytes.
 
 Scan your project, run language‑appropriate compilers/checkers, capture errors/warnings, and emit a compact XML/JSON diagnostic summary plus a ready‑to‑use fix prompt for LLMs. Writes a single-file artifact in your project directory.
 
+New in this version:
+- --include-tests compiles/analyzes test sources without running them:
+  - Swift: swift build --build-tests
+  - Rust: cargo test --no-run
+  - Go: go test -c -o /dev/null per package
+  - Java (Maven): mvn -DskipTests test-compile
+  - Java (Gradle): gradle testClasses
+  - JS/TS: additional eslint -f unix pass over common test globs
+- All existing --ignore rules apply to test files too.
+
+Examples:
+
+```bash
+megadiagnose .
+megadiagnose . --include-tests
+megadiagnose . --ignore build --ignore docs/generated/**
+megadiagnose . --xml-out diag.xml --json-out diag.json --prompt-out fix_prompt.txt
+```
+
 ---
 
 ## MegaTest (megatest)

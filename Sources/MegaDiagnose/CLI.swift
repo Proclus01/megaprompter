@@ -45,6 +45,9 @@ struct MegaDiagnoseCLI: ParsableCommand {
   )
   var ignore: [String] = []
 
+  @Flag(name: .long, help: "Also compile/analyze tests for diagnostics without running them (e.g., swift --build-tests, cargo test --no-run).")
+  var includeTests: Bool = false
+
   func run() throws {
     let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
     guard FileSystem.isDirectory(root) else {
@@ -88,7 +91,13 @@ struct MegaDiagnoseCLI: ParsableCommand {
     }
 
     // Run diagnostics
-    let runner = DiagnosticsRunner(root: root, timeoutSeconds: timeoutSeconds, ignoreNames: ignoreNames, ignoreGlobs: ignoreGlobs)
+    let runner = DiagnosticsRunner(
+      root: root,
+      timeoutSeconds: timeoutSeconds,
+      ignoreNames: ignoreNames,
+      ignoreGlobs: ignoreGlobs,
+      includeTests: includeTests
+    )
     let report = runner.run(profile: profile)
 
     if showSummary {
@@ -97,6 +106,7 @@ struct MegaDiagnoseCLI: ParsableCommand {
       let errs = report.languages.reduce(0) { $0 + $1.issues.filter { $0.severity == .error }.count }
       let warns = report.languages.reduce(0) { $0 + $1.issues.filter { $0.severity == .warning }.count }
       Console.info("Issues: \(totalIssues) (errors: \(errs), warnings: \(warns))")
+      Console.info("Including tests: \(includeTests ? "yes" : "no")")
       if !ignoreNames.isEmpty || !ignoreGlobs.isEmpty {
         if !ignoreNames.isEmpty { Console.info("Ignore names: \(ignoreNames.joined(separator: ", "))") }
         if !ignoreGlobs.isEmpty { Console.info("Ignore globs: \(ignoreGlobs.joined(separator: ", "))") }
@@ -158,3 +168,4 @@ struct RuntimeError: Error, CustomStringConvertible {
   let description: String
   init(_ description: String) { self.description = description }
 }
+

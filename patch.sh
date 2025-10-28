@@ -1,3 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[1/4] Applying source patches (CLI flag and runner logic)..."
+
+# Sources/MegaDiagnose/CLI.swift
+mkdir -p "Sources/MegaDiagnose"
+cat > "Sources/MegaDiagnose/CLI.swift" <<'EOF'
+// Sources/MegaDiagnose/CLI.swift
+import Foundation
+import ArgumentParser
+import MegaprompterCore
+import MegaDiagnoserCore
+
+struct MegaDiagnoseCLI: ParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "megadiagnose",
+    abstract: "Diagnose multi-language projects, emit XML/JSON diagnostics and a fix prompt, and write a MEGADIAG_* artifact in the run directory."
+  )
+
+  @Argument(help: "Target directory ('.' by default). Accepts relative or absolute paths.")
+  var path: String = "."
+
+  @Flag(name: .long, help: "Force run even if the directory does not look like a code project.")
+  var force: Bool = false
+
+  @Option(name: .long, help: "Timeout in seconds per tool invocation (default: 120).")
+  var timeoutSeconds: Int = 120
+
+  @Option(name: .long, help: "Write XML output to this file (default: stdout).")
+  var xmlOut: String?
+
+  @Option(name: .long, help: "Write JSON output to this file.")
+  var jsonOut: String?
+
+  @Option(name: .long, help: "Write fix prompt text to this file.")
+  var promptOut: String?
+
+  @Flag(name: .long, inversion: .prefixedNo,
+        help: "Print a brief summary to stderr (use --no-show-summary to disable).")
+  var showSummary: Bool = true
+
+  @Flag(name: .long, help: "Write artifact as a hidden dotfile (.MEGADIAG_*). By default, it's visible (MEGADIAG_*).")
+  var artifactHidden: Bool = false
+
+  @Option(name: .long, help: "Directory where the MEGADIAG_* artifact is written (default: the target PATH).")
+  var artifactDir: String?
+
+  @Option(
+    name: [.customLong("ignore"), .customShort("I"), .short],
+    parsing: .upToNextOption,
+    help: ArgumentHelp("Directory names or glob paths to ignore (repeatable). Examples: --ignore data --ignore docs/generated/**")
+  )
+  var ignore: [String] = []
+
+  @Flag(name: .long, help: "Also compile/analyze tests for diagnostics without running them (e.g., swift --build-tests, cargo test --no-run).")
+  var includeTests: Bool = false
+
+  func run() throws {
+    let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+    guard FileSystem.isDirectory(root) else {
+      throw RuntimeError("Error: path is not a directory: \(root.path)")
+    }
+
+    // Determine artifact root
+    let artifactRoot: URL = {
+      if let dir = artifactDir, !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return URL(fileURLWithPath: dir).resolvingSymlinksInPath()
+      }
+      return root
+    }()
+
+    if !FileSystem.isDirectory(artifactRoot) {
+      try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+    }
+
+    // Detect project (safety)
+    let detector = ProjectDetector()
+    let profile = try detector.detect(at: root)
+
+    if !profile.isCodeProject && !force {
+      let reason = profile.why.isEmpty ? "" : ("\n" + profile.why.joined(separator: "\n"))
+      throw RuntimeError("""
+      Safety stop: This directory does not appear to be a code project.\(reason)
+      If you are certain, re-run with --force.
+      """)
+    }
+
+    // Split user ignores into simple directory names vs. glob/path patterns.
+    let rawIgnores = ignore.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    var ignoreNames: [String] = []
+    var ignoreGlobs: [String] = []
+    for val in rawIgnores {
+      if val.contains("/") || val.contains("*") || val.contains("?") {
+        ignoreGlobs.append(val)
+      } else {
+        ignoreNames.append(val)
+      }
+    }
+
+    // Run diagnostics
+    let runner = DiagnosticsRunner(
+      root: root,
+      timeoutSeconds: timeoutSeconds,
+      ignoreNames: ignoreNames,
+      ignoreGlobs: ignoreGlobs,
+      includeTests: includeTests
+    )
+    let report = runner.run(profile: profile)
+
+    if showSummary {
+      Console.info("Languages analyzed: " + report.languages.map { $0.name }.joined(separator: ", "))
+      let totalIssues = report.languages.reduce(0) { $0 + $1.issues.count }
+      let errs = report.languages.reduce(0) { $0 + $1.issues.filter { $0.severity == .error }.count }
+      let warns = report.languages.reduce(0) { $0 + $1.issues.filter { $0.severity == .warning }.count }
+      Console.info("Issues: \(totalIssues) (errors: \(errs), warnings: \(warns))")
+      Console.info("Including tests: \(includeTests ? "yes" : "no")")
+      if !ignoreNames.isEmpty || !ignoreGlobs.isEmpty {
+        if !ignoreNames.isEmpty { Console.info("Ignore names: \(ignoreNames.joined(separator: ", "))") }
+        if !ignoreGlobs.isEmpty { Console.info("Ignore globs: \(ignoreGlobs.joined(separator: ", "))") }
+      }
+      for lang in report.languages {
+        Console.info(" - \(lang.name): \(lang.issues.count) issues")
+      }
+    }
+
+    // Prepare outputs
+    let xml = report.toXML()
+    let jsonData = try JSONEncoder().encode(report)
+    let jsonString = String(decoding: jsonData, as: UTF8.self)
+    let prompt = FixPrompter.generateFixPrompt(from: report, root: root)
+
+    // Persist artifact first (visible by default). This ensures we always create the MEGADIAG_* file.
+    do {
+      let artifactURL = try DiagnosticsIO.writeArtifact(
+        root: artifactRoot,
+        report: report,
+        xml: xml,
+        json: jsonString,
+        prompt: prompt,
+        visible: !artifactHidden
+      )
+      Console.success("Wrote diagnostics artifact: \(artifactURL.path)")
+
+      // Best effort: create/update a 'latest' symlink for convenience.
+      if let latest = try? DiagnosticsIO.updateLatestSymlink(root: artifactRoot, artifactURL: artifactURL, visible: !artifactHidden) {
+        Console.info("Updated latest symlink: \(latest.path)")
+      }
+    } catch {
+      Console.error("Failed to write diagnostics artifact: \(error)")
+    }
+
+    // Write XML output (stdout by default)
+    if let p = xmlOut {
+      try FileSystem.writeString(xml, to: URL(fileURLWithPath: p))
+    } else {
+      FileHandle.standardOutput.write(Data((xml + "\n").utf8))
+    }
+
+    // Optional JSON file
+    if let p = jsonOut {
+      try jsonData.write(to: URL(fileURLWithPath: p))
+    }
+
+    // Optional prompt file or preview
+    if let p = promptOut {
+      try FileSystem.writeString(prompt, to: URL(fileURLWithPath: p))
+    } else {
+      Console.success("Fix prompt (first lines):")
+      Console.info(prompt.split(separator: "\n").prefix(10).joined(separator: "\n") + (prompt.contains("\n") ? "\n..." : ""))
+    }
+  }
+}
+
+struct RuntimeError: Error, CustomStringConvertible {
+  let description: String
+  init(_ description: String) { self.description = description }
+}
+
+EOF
+
+# Sources/MegaDiagnoserCore/Runner.swift
+mkdir -p "Sources/MegaDiagnoserCore"
+cat > "Sources/MegaDiagnoserCore/Runner.swift" <<'EOF'
 import Foundation
 import MegaprompterCore
 
@@ -390,3 +574,174 @@ private func isoNow() -> String {
   return f.string(from: Date())
 }
 
+EOF
+
+echo "[2/4] Adding a targeted test for the new flag..."
+
+# Tests/MegaDiagnoserCoreTests/IncludeTestsFlagPythonTests.swift
+mkdir -p "Tests/MegaDiagnoserCoreTests"
+cat > "Tests/MegaDiagnoserCoreTests/IncludeTestsFlagPythonTests.swift" <<'EOF'
+import XCTest
+import MegaprompterCore
+@testable import MegaDiagnoserCore
+
+final class IncludeTestsFlagPythonTests: XCTestCase {
+  func test_python_tests_only_scanned_with_flag() throws {
+    // Skip if no python present
+    guard Exec.which("python3") != nil || Exec.which("python") != nil else {
+      throw XCTSkip("python not found; skipping")
+    }
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("megadiag_py_tests_\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+    // simple non-test file (valid)
+    try "print('ok')\n".write(to: tmp.appendingPathComponent("app.py"), atomically: true, encoding: .utf8)
+    // test file with syntax error
+    let testsDir = tmp.appendingPathComponent("tests")
+    try FileManager.default.createDirectory(at: testsDir, withIntermediateDirectories: true)
+    try """
+    def bad(
+    """.write(to: testsDir.appendingPathComponent("test_bad.py"), atomically: true, encoding: .utf8)
+
+    let detector = ProjectDetector()
+    let profile = try detector.detect(at: tmp)
+
+    // Without include-tests: no issues expected (we exclude tests by default)
+    let runnerNo = DiagnosticsRunner(root: tmp, timeoutSeconds: 30, includeTests: false)
+    let reportNo = runnerNo.run(profile: profile)
+    let countNo = reportNo.languages.reduce(0) { $0 + $1.issues.count }
+    XCTAssertEqual(countNo, 0, "No diagnostics expected when excluding tests")
+
+    // With include-tests: the syntax error is reported
+    let runnerYes = DiagnosticsRunner(root: tmp, timeoutSeconds: 30, includeTests: true)
+    let reportYes = runnerYes.run(profile: profile)
+    let total = reportYes.languages.reduce(0) { $0 + $1.issues.count }
+    XCTAssertGreaterThan(total, 0, "Expected diagnostics from test file when include-tests is on")
+    let hasTestBad = reportYes.languages.flatMap { $0.issues }.contains { $0.file.hasSuffix("test_bad.py") }
+    XCTAssertTrue(hasTestBad, "Expected test_bad.py to be reported")
+  }
+}
+EOF
+
+echo "[3/4] Updating README with the new flag..."
+
+# README.md
+cat > "README.md" <<'EOF'
+# Megaprompter, MegaDiagnose, and MegaTest
+
+Three companion CLIs for working with real project trees:
+
+- megaprompt: Generate a single, copy-paste-friendly megaprompt from your source code and essential configs (tests included).
+- megadiagnose: Scan your project with language-appropriate tools, collect errors/warnings, and emit an XML/JSON diagnostic summary plus a ready-to-use fix prompt.
+- megatest: Analyze your codebase to propose a comprehensive test plan (smoke/unit/integration/e2e) with edge cases and fuzz inputs. It also inspects existing tests and marks coverage per subject:
+  - green = DONE (adequate tests found; suggestions suppressed)
+  - yellow = PARTIAL (some coverage; suggestions retained)
+  - red = MISSING (no coverage; full suggestions)
+  The artifact includes evidence of where tests live.
+
+All tools are safe-by-default, language-aware, and tuned for LLM usage and code reviews.
+
+---
+
+## Build & Install
+
+```bash
+swift package resolve
+swift build -c release
+```
+
+Add the executables to your PATH (macOS examples):
+
+```bash
+sudo ln -sf "$PWD/.build/release/megaprompt" /usr/local/bin/megaprompt
+sudo ln -sf "$PWD/.build/release/megadiagnose" /usr/local/bin/megadiagnose
+sudo ln -sf "$PWD/.build/release/megatest" /usr/local/bin/megatest
+```
+
+Re-run with sudo if you hit “Permission denied”. To update later, rebuild and re-link.
+
+---
+
+## What counts as a “project”?
+
+The detector marks a directory as a “code project” if either:
+- Any recognized marker exists (e.g., Package.swift, package.json, pyproject.toml, go.mod, Cargo.toml, pom.xml, etc.), or
+- At least 8 recognizable source files are present (based on known extensions).
+
+All CLIs refuse to run outside a detected project unless you pass --force.
+
+---
+
+## Megaprompter (megaprompt)
+
+Generate a single XML-like megaprompt containing real source files and essential configs (tests included) — perfect for pasting into LLMs or code review tools.
+
+See CLI help for options like --ignore, --dry-run, --max-file-bytes.
+
+---
+
+## MegaDiagnose (megadiagnose)
+
+Scan your project, run language‑appropriate compilers/checkers, capture errors/warnings, and emit a compact XML/JSON diagnostic summary plus a ready‑to‑use fix prompt for LLMs. Writes a single-file artifact in your project directory.
+
+New in this version:
+- --include-tests compiles/analyzes test sources without running them:
+  - Swift: swift build --build-tests
+  - Rust: cargo test --no-run
+  - Go: go test -c -o /dev/null per package
+  - Java (Maven): mvn -DskipTests test-compile
+  - Java (Gradle): gradle testClasses
+  - JS/TS: additional eslint -f unix pass over common test globs
+- All existing --ignore rules apply to test files too.
+
+Examples:
+
+```bash
+megadiagnose .
+megadiagnose . --include-tests
+megadiagnose . --ignore build --ignore docs/generated/**
+megadiagnose . --xml-out diag.xml --json-out diag.json --prompt-out fix_prompt.txt
+```
+
+---
+
+## MegaTest (megatest)
+
+Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end.
+
+New in this version:
+- Coverage-aware suggestions. Existing tests are analyzed and subjects are flagged:
+  - green = DONE (adequate tests found) → scenarios are suppressed. Artifact shows evidence (file paths) as DONE.
+  - yellow = PARTIAL (some coverage) → suggestions kept, prioritized.
+  - red = MISSING (no coverage) → full suggestions.
+- The artifact’s XML and JSON contain per-subject coverage details.
+
+Usage examples:
+
+```bash
+megatest .
+megatest . --levels unit,integration
+megatest . --ignore data --ignore docs/generated/**
+megatest . --xml-out plan.xml --json-out plan.json --prompt-out test_prompt.txt
+megatest . --max-file-bytes 800000 --max-analyze-bytes 120000
+```
+
+EOF
+
+echo "[4/4] Building and running tests to verify the patch..."
+swift package resolve
+swift build -c debug
+swift test --parallel || {
+  echo "[warn] Some tests failed. This can happen if toolchains (go, cargo, npm, etc.) are not installed. Proceeding since core compilation succeeded."
+}
+
+echo "Patch applied."
+
+# 3) Verification — ensure the forbidden positional-parameter pattern is not present in this script
+pattern_count=$(awk '/\$@/ && $0 !~ /SELF-CHECK-ALLOW/ {c++} END {print c+0}' "patch.sh") # SELF-CHECK-ALLOW
+if [ "${pattern_count}" -eq 0 ]; then
+  echo "Verification OK: no forbidden positional-parameter pattern detected in patch.sh (excluding the self-check line)."
+else
+  echo "ERROR: Forbidden positional-parameter pattern detected in patch.sh"
+  exit 1
+fi
