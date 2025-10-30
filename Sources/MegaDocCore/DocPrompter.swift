@@ -17,6 +17,11 @@ public enum DocPrompter {
       lines.append("Import/dependency graph:")
       lines.append(r.importGraph)
     }
+    if let umlAscii = r.umlAscii, !umlAscii.isEmpty {
+      lines.append("")
+      lines.append("UML (ASCII):")
+      lines.append(umlAscii)
+    }
     if !r.externalDependencies.isEmpty {
       lines.append("")
       lines.append("External dependencies (approximate):")
@@ -38,6 +43,7 @@ public enum DocPrompter {
     lines.append("")
     lines.append("Instructions:")
     lines.append("- Extract architectural overview, key modules, and responsibilities.")
+    lines.append("- Use the UML to identify entrypoints, service boundaries, and data sources.")
     lines.append("- Relate external dependencies to specific modules and features.")
     lines.append("- If fetch mode: summarize content relevance to the codebase or to the requested topic.")
     lines.append("- Return a concise outline plus follow-up questions if crucial information is missing.")

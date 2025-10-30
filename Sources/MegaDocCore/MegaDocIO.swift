@@ -22,6 +22,16 @@ public enum MegaDocIO {
     lines.append("  <doc_prompt><![CDATA[")
     lines.append(prompt)
     lines.append("  ]]></doc_prompt>")
+    if let umlAscii = report.umlAscii, !umlAscii.isEmpty {
+      lines.append("  <uml_ascii><![CDATA[")
+      lines.append(umlAscii)
+      lines.append("  ]]> </uml_ascii>")
+    }
+    if let umlPlant = report.umlPlantUML, !umlPlant.isEmpty {
+      lines.append("  <uml_plantuml><![CDATA[")
+      lines.append(umlPlant)
+      lines.append("  ]]> </uml_plantuml>")
+    }
     lines.append("</documentation_artifact>")
 
     try FileSystem.writeString(lines.joined(separator: "\n"), to: url)

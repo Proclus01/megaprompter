@@ -42,6 +42,10 @@ public struct MegaDocReport: Codable {
   public let purposeSummary: String
   public let fetchedDocs: [FetchedDoc]
 
+  // New optional UML sections
+  public let umlAscii: String?
+  public let umlPlantUML: String?
+
   public init(
     generatedAt: String,
     mode: MegaDocMode,
@@ -52,7 +56,9 @@ public struct MegaDocReport: Codable {
     imports: [DocImport],
     externalDependencies: [String: Int],
     purposeSummary: String,
-    fetchedDocs: [FetchedDoc]
+    fetchedDocs: [FetchedDoc],
+    umlAscii: String? = nil,
+    umlPlantUML: String? = nil
   ) {
     self.generatedAt = generatedAt
     self.mode = mode
@@ -64,6 +70,8 @@ public struct MegaDocReport: Codable {
     self.externalDependencies = externalDependencies
     self.purposeSummary = purposeSummary
     self.fetchedDocs = fetchedDocs
+    self.umlAscii = umlAscii
+    self.umlPlantUML = umlPlantUML
   }
 }
 
@@ -81,6 +89,12 @@ public extension MegaDocReport {
     }
     parts.append("  <directory_tree><![CDATA[\n\(directoryTree)\n]]></directory_tree>")
     parts.append("  <import_graph><![CDATA[\n\(importGraph)\n]]></import_graph>")
+    if let umlAscii, !umlAscii.isEmpty {
+      parts.append("  <uml_ascii><![CDATA[\n\(umlAscii)\n]]></uml_ascii>")
+    }
+    if let umlPlantUML, !umlPlantUML.isEmpty {
+      parts.append("  <uml_plantuml><![CDATA[\n\(umlPlantUML)\n]]></uml_plantuml>")
+    }
     if !imports.isEmpty {
       parts.append("  <imports>")
       for i in imports {

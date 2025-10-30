@@ -10,8 +10,7 @@ Three companion CLIs for working with real project trees, plus a documentation-o
   - red = MISSING (no coverage; full suggestions)
   The artifact includes evidence of where tests live.
 - megadoc: Build a documentation artifact for agents. From local code it emits an ASCII directory tree, an import/dependency graph, a purpose summary; from URIs it fetches/crawls content and summarizes. Outputs an XML/JSON + prompt artifact (MEGADOC_*).
-
-All tools are safe-by-default, language-aware, and tuned for LLM usage and code reviews.
+  - New: UML diagrams. MegaDoc emits an ASCII UML-like component diagram and a PlantUML block that illustrate module dependencies, endpoints, and data sources (DB/FS/HTTP/env).
 
 ---
 
@@ -118,10 +117,11 @@ Produce a documentation artifact for agents and reviewers.
 
 Two modes:
 
-- Local analysis (code → structure + purpose)
+- Local analysis (code → structure + purpose + UML)
   - Builds an ASCII directory tree (prunes build/vendor/caches)
   - Extracts imports and draws an ASCII dependency graph
   - Summarizes likely purpose from README and high-signal code hints
+  - Emits UML diagrams (ASCII and PlantUML) to show module dependencies, endpoints, and data sources
   - Emits XML/JSON + a ready-to-use prompt; writes MEGADOC_* in the run directory
 
 - Fetch mode (URI(s) → fetched doc previews)
@@ -132,10 +132,16 @@ Two modes:
 Examples:
 
 ```bash
-# Local create
+# Local create (UML is on by default)
 megadoc --create .
 megadoc --create . --ignore build --ignore node_modules --tree-depth 5 \
   --xml-out doc.xml --json-out doc.json --prompt-out doc_prompt.txt
+
+# Control UML output:
+megadoc --create . --uml ascii,plantuml --uml-granularity module --uml-max-nodes 120 \
+  --uml-include-io --uml-include-endpoints
+megadoc --create . --uml none                        # disable UML
+megadoc --create . --uml ascii --uml-out UML.txt     # write ASCII + PlantUML to a separate file (if format included)
 
 # Fetch docs
 megadoc --get https://learn.microsoft.com/azure --crawl-depth 2 --allow-domain learn.microsoft.com
@@ -144,6 +150,14 @@ megadoc --get https://developer.squareup.com/docs --allow-domain developer.squar
 megadoc --get https://docs.stripe.com --allow-domain docs.stripe.com
 megadoc --get ./docs --get README.md
 ```
+
+UML options (local --create mode):
+- --uml ascii,plantuml|ascii|plantuml|none    Formats to emit (default: ascii,plantuml).
+- --uml-granularity file|module|package       Grouping level for internal nodes (default: module).
+- --uml-max-nodes N                           Soft cap; long-tail externals are collapsed (default: 120).
+- --uml-include-io / --no-uml-include-io      Include data source nodes and edges (default: on).
+- --uml-include-endpoints / --no-uml-include-endpoints  Include HTTP endpoints (default: on).
+- --uml-out PATH                              Write UML ASCII (and PlantUML if selected) to a separate file.
 
 Safety defaults:
 - Local runs require project detection unless --force is provided.

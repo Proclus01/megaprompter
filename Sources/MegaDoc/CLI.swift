@@ -66,6 +66,25 @@ struct MegaDocCLI: ParsableCommand {
   @Option(name: .long, parsing: .upToNextOption, help: "Allow only these domains when crawling (repeatable).")
   var allowDomain: [String] = []
 
+  // UML options (local --create mode)
+  @Option(name: .long, help: "UML formats to include (csv): ascii,plantuml|ascii|plantuml|none (default: ascii,plantuml).")
+  var uml: String = "ascii,plantuml"
+
+  @Option(name: .long, help: "UML granularity: file|module|package (default: module).")
+  var umlGranularity: String = "module"
+
+  @Option(name: .long, help: "UML soft max nodes before collapsing long-tail externals (default: 120).")
+  var umlMaxNodes: Int = 120
+
+  @Flag(name: .long, help: "Include data source IO nodes (db/fs/http/env) in UML (default: on).")
+  var umlIncludeIo: Bool = true
+
+  @Flag(name: .long, help: "Include HTTP endpoint nodes in UML (default: on).")
+  var umlIncludeEndpoints: Bool = true
+
+  @Option(name: .long, help: "Write UML text to this file (ASCII and PlantUML if requested).")
+  var umlOut: String?
+
   func run() throws {
     // Validate mode
     let isCreate = create
@@ -120,7 +139,7 @@ struct MegaDocCLI: ParsableCommand {
         }
       }
 
-      // Collect files (reuse megaprompt scanner rules)
+      // Collect files
       let scanner = ProjectScanner(
         profile: profile,
         maxFileBytes: maxFileBytes,
@@ -135,6 +154,34 @@ struct MegaDocCLI: ParsableCommand {
       let purpose = PurposeGuesser.guess(root: root, files: files, languages: Array(profile.languages), maxAnalyzeBytes: maxAnalyzeBytes)
       let external = ImportGrapher.externalSummary(imports: imports)
 
+      // UML
+      let umlFormats: Set<String> = Set(uml.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
+      let includeUML = !umlFormats.contains("none") && !umlFormats.isEmpty
+      var umlAscii: String? = nil
+      var umlPlant: String? = nil
+      if includeUML {
+        let gran = UMLGranularity(rawValue: umlGranularity.lowercased()) ?? .module
+        let builder = UMLBuilder(root: root, imports: imports, files: files, maxAnalyzeBytes: maxAnalyzeBytes, granularity: gran)
+        let diagram = builder.build(includeIO: umlIncludeIo, includeEndpoints: umlIncludeEndpoints, maxNodes: umlMaxNodes)
+        if umlFormats.contains("ascii") { umlAscii = UMLBuilder.toASCII(diagram) }
+        if umlFormats.contains("plantuml") { umlPlant = UMLBuilder.toPlantUML(diagram) }
+
+        if let outPath = umlOut {
+          var blob: [String] = []
+          if let s = umlAscii, !s.isEmpty {
+            blob.append("# UML ASCII")
+            blob.append(s)
+            blob.append("")
+          }
+          if let p = umlPlant, !p.isEmpty {
+            blob.append("# UML PlantUML")
+            blob.append(p)
+          }
+          try FileSystem.writeString(blob.joined(separator: "\n"), to: URL(fileURLWithPath: outPath))
+          Console.info("Wrote UML to: \(outPath)")
+        }
+      }
+
       report = MegaDocReport(
         generatedAt: isoNow(),
         mode: .local,
@@ -145,7 +192,9 @@ struct MegaDocCLI: ParsableCommand {
         imports: imports,
         externalDependencies: external,
         purposeSummary: purpose,
-        fetchedDocs: []
+        fetchedDocs: [],
+        umlAscii: umlAscii,
+        umlPlantUML: umlPlant
       )
 
     } else {
@@ -166,7 +215,9 @@ struct MegaDocCLI: ParsableCommand {
         imports: [],
         externalDependencies: [:],
         purposeSummary: summary,
-        fetchedDocs: docs
+        fetchedDocs: [],
+        umlAscii: nil,
+        umlPlantUML: nil
       )
     }
 
@@ -209,6 +260,12 @@ struct MegaDocCLI: ParsableCommand {
         Console.info("Languages: " + report.languages.joined(separator: ", "))
       }
       Console.info("Imports: \(report.imports.count), External deps: \(report.externalDependencies.count), Docs fetched: \(report.fetchedDocs.count)")
+      if let ua = report.umlAscii, !ua.isEmpty {
+        Console.info("UML: ascii included")
+      }
+      if let up = report.umlPlantUML, !up.isEmpty {
+        Console.info("UML: plantuml included")
+      }
     }
   }
 }
