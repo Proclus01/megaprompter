@@ -1,6 +1,6 @@
-# Megaprompter, MegaDiagnose, and MegaTest
+# Megaprompter, MegaDiagnose, MegaTest, and MegaDoc
 
-Three companion CLIs for working with real project trees:
+Three companion CLIs for working with real project trees, plus a documentation-oriented agent feed:
 
 - megaprompt: Generate a single, copy-paste-friendly megaprompt from your source code and essential configs (tests included).
 - megadiagnose: Scan your project with language-appropriate tools, collect errors/warnings, and emit an XML/JSON diagnostic summary plus a ready-to-use fix prompt.
@@ -9,6 +9,7 @@ Three companion CLIs for working with real project trees:
   - yellow = PARTIAL (some coverage; suggestions retained)
   - red = MISSING (no coverage; full suggestions)
   The artifact includes evidence of where tests live.
+- megadoc: Build a documentation artifact for agents. From local code it emits an ASCII directory tree, an import/dependency graph, a purpose summary; from URIs it fetches/crawls content and summarizes. Outputs an XML/JSON + prompt artifact (MEGADOC_*).
 
 All tools are safe-by-default, language-aware, and tuned for LLM usage and code reviews.
 
@@ -27,6 +28,7 @@ Add the executables to your PATH (macOS examples):
 sudo ln -sf "$PWD/.build/release/megaprompt" /usr/local/bin/megaprompt
 sudo ln -sf "$PWD/.build/release/megadiagnose" /usr/local/bin/megadiagnose
 sudo ln -sf "$PWD/.build/release/megatest" /usr/local/bin/megatest
+sudo ln -sf "$PWD/.build/release/megadoc" /usr/local/bin/megadoc
 ```
 
 Re-run with sudo if you hit “Permission denied”. To update later, rebuild and re-link.
@@ -78,7 +80,7 @@ megadiagnose . --xml-out diag.xml --json-out diag.json --prompt-out fix_prompt.t
 
 ## MegaTest (megatest)
 
-Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects (functions/methods/classes/endpoints/entrypoints), infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end, regression.
+Analyze your repo and produce a comprehensive, language-aware test plan. Identifies testable subjects, infers I/O and complexity risk, and proposes concrete scenarios per level: smoke, unit, integration, end-to-end, regression.
 
 New in this version:
 - Coverage-aware suggestions. Existing tests are analyzed and subjects are flagged:
@@ -107,5 +109,44 @@ Regression flags:
 
 Notes:
 - Requires git in PATH and a git repository; otherwise a warning is logged and the run continues without regression scenarios.
-- Regression scenarios emphasize boundary/negative cases around the change. For endpoints, they reuse API payload suggestions.
 
+---
+
+## MegaDoc (megadoc)
+
+Produce a documentation artifact for agents and reviewers.
+
+Two modes:
+
+- Local analysis (code → structure + purpose)
+  - Builds an ASCII directory tree (prunes build/vendor/caches)
+  - Extracts imports and draws an ASCII dependency graph
+  - Summarizes likely purpose from README and high-signal code hints
+  - Emits XML/JSON + a ready-to-use prompt; writes MEGADOC_* in the run directory
+
+- Fetch mode (URI(s) → fetched doc previews)
+  - Fetches local paths (file://, absolute) or HTTP(S) with optional depth and domain allow-list
+  - Crawls same-domain links up to --crawl-depth
+  - Summarizes fetched docs and embeds previews
+
+Examples:
+
+```bash
+# Local create
+megadoc --create .
+megadoc --create . --ignore build --ignore node_modules --tree-depth 5 \
+  --xml-out doc.xml --json-out doc.json --prompt-out doc_prompt.txt
+
+# Fetch docs
+megadoc --get https://learn.microsoft.com/azure --crawl-depth 2 --allow-domain learn.microsoft.com
+megadoc --get https://platform.openai.com/docs/introduction --allow-domain platform.openai.com
+megadoc --get https://developer.squareup.com/docs --allow-domain developer.squareup.com
+megadoc --get https://docs.stripe.com --allow-domain docs.stripe.com
+megadoc --get ./docs --get README.md
+```
+
+Safety defaults:
+- Local runs require project detection unless --force is provided.
+- HTTP crawling is limited by --allow-domain and --crawl-depth.
+
+---

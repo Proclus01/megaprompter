@@ -9,7 +9,8 @@ let package = Package(
   products: [
     .executable(name: "megaprompt", targets: ["Megaprompter"]),
     .executable(name: "megadiagnose", targets: ["MegaDiagnose"]),
-    .executable(name: "megatest", targets: ["MegaTest"])
+    .executable(name: "megatest", targets: ["MegaTest"]),
+    .executable(name: "megadoc", targets: ["MegaDoc"])
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.6.1")
@@ -27,6 +28,12 @@ let package = Package(
     ),
     .target(
       name: "MegaTesterCore",
+      dependencies: [
+        "MegaprompterCore"
+      ]
+    ),
+    .target(
+      name: "MegaDocCore",
       dependencies: [
         "MegaprompterCore"
       ]
@@ -56,6 +63,14 @@ let package = Package(
         .product(name: "ArgumentParser", package: "swift-argument-parser")
       ]
     ),
+    .executableTarget(
+      name: "MegaDoc",
+      dependencies: [
+        "MegaDocCore",
+        "MegaprompterCore",
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
+      ]
+    ),
 
     // Tests
     .testTarget(
@@ -71,12 +86,14 @@ let package = Package(
       name: "MegaTesterCoreTests",
       dependencies: ["MegaTesterCore"]
     ),
-    // New: end-to-end regression tests for MegaTest
     .testTarget(
       name: "MegaTestRegressionTests",
       dependencies: ["MegaTesterCore", "MegaprompterCore", "MegaTest"],
       path: "Tests/MegaTestRegressionTests"
+    ),
+    .testTarget(
+      name: "MegaDocCoreTests",
+      dependencies: ["MegaDocCore", "MegaprompterCore"]
     )
   ]
 )
-
