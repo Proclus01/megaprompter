@@ -1,3 +1,4 @@
+// Sources/MegaprompterCore/Detection.swift
 import Foundation
 
 /// Summary of the detected project.
@@ -31,7 +32,12 @@ public final class ProjectDetector {
     "ruby": ["Gemfile"],
     "swift": ["Package.swift", "*.xcodeproj"],
     "terraform": ["*.tf"],
-    "docker": ["Dockerfile"]
+    "docker": ["Dockerfile"],
+
+    // LaTeX projects: recognize common markers
+    // - latexmkrc (build config)
+    // - any .tex file (e.g., main.tex) — typical in LaTeX repos
+    "latex": ["latexmkrc", "*.tex"]
   ]
 
   /// Extension → language map (used as heuristic if markers are absent).
@@ -54,7 +60,13 @@ public final class ProjectDetector {
     ".html": "html",
     ".graphql": "graphql", ".gql": "graphql",
     ".sql": "sql",
-    ".sh": "shell", ".zsh": "shell", ".bash": "shell"
+    ".sh": "shell", ".zsh": "shell", ".bash": "shell",
+
+    // LaTeX family
+    ".tex": "latex",
+    ".cls": "latex",
+    ".sty": "latex",
+    ".bib": "latex"
   ]
 
   public init() {}

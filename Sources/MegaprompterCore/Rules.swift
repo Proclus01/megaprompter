@@ -87,7 +87,10 @@ public enum RulesFactory {
     ".md", ".xml",
 
     // build config fragments
-    ".gradle"
+    ".gradle",
+
+    // LaTeX family (now supported in Megaprompter)
+    ".tex", ".cls", ".sty", ".bib"
   ]
 
   // Specific filenames to exclude even if they match allowed extensions.
@@ -142,7 +145,10 @@ public enum RulesFactory {
     ".prettierrc", ".prettierrc.json", ".prettierrc.yaml", ".prettierrc.yml",
     ".prettierrc.js", ".prettierrc.cjs", "prettier.config.js", "prettier.config.cjs", "prettier.config.ts",
     "Makefile", "CMakeLists.txt",
-    "Pipfile.lock"
+    "Pipfile.lock",
+
+    // LaTeX build configuration (no extension)
+    "latexmkrc"
   ]
 
   // Glob patterns we *always* include (notably GitHub Actions and CI).
