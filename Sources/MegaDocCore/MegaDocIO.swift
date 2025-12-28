@@ -25,12 +25,12 @@ public enum MegaDocIO {
     if let umlAscii = report.umlAscii, !umlAscii.isEmpty {
       lines.append("  <uml_ascii><![CDATA[")
       lines.append(umlAscii)
-      lines.append("  ]]> </uml_ascii>")
+      lines.append("  ]]></uml_ascii>")
     }
     if let umlPlant = report.umlPlantUML, !umlPlant.isEmpty {
       lines.append("  <uml_plantuml><![CDATA[")
       lines.append(umlPlant)
-      lines.append("  ]]> </uml_plantuml>")
+      lines.append("  ]]></uml_plantuml>")
     }
     lines.append("</documentation_artifact>")
 
@@ -60,6 +60,11 @@ public enum MegaDocIO {
   }
 
   private static func escapeAttr(_ s: String) -> String {
-    s.replacingOccurrences(of: "\"", with: "&quot;")
+    // Robust XML attribute escaping for the artifact envelope.
+    return s
+      .replacingOccurrences(of: "&", with: "&amp;")
+      .replacingOccurrences(of: "\"", with: "&quot;")
+      .replacingOccurrences(of: "<", with: "&lt;")
+      .replacingOccurrences(of: ">", with: "&gt;")
   }
 }

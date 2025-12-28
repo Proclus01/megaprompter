@@ -439,9 +439,20 @@ Arrows:
     return f
   }
 
+  // Endpoint detection
+  // NOTE: This is heuristic-based. We prefer correctness for common idioms.
+  // Fixes included:
+  // - Go: previously tagged every match as GET even for POST/PUT/DELETE.
+  // - Java/Kotlin: previously inferred method from the *path* (incorrect).
   private func detectEndpoints(in text: String, lang: String) -> [(method: String, path: String)] {
     var out: [(String,String)] = []
-    func add(_ m: String, _ p: String) { out.append((m.uppercased(), p)) }
+    func add(_ m: String, _ p: String) {
+      let method = m.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+      let path = p.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !method.isEmpty, !path.isEmpty {
+        out.append((method, path))
+      }
+    }
 
     switch lang {
     case "javascript","typescript":
@@ -451,34 +462,62 @@ Arrows:
       if let re2 = try? NSRegularExpression(pattern: #"(?m)new\s+Router\(\)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#) {
         find2(re2, text).forEach { add($0.0, $0.1) }
       }
+
     case "python":
       if let re = try? NSRegularExpression(pattern: #"(?m)^\s*@(?:app|router)\.(get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"#) {
         find2(re, text).forEach { add($0.0, $0.1) }
       }
+
     case "go":
-      if let re = try? NSRegularExpression(pattern: #"(?m)(?:http\.HandleFunc|\.GET|\.POST|\.PUT|\.DELETE)\(\s*["']([^"']+)["']"#) {
-        find1(re, text).forEach { add("GET", $0) }
+      // Common router-style: r.POST("/path", ...) / mux.POST("/path") / chi.Router.Post("/path", ...)
+      if let re = try? NSRegularExpression(pattern: #"(?m)\.(GET|POST|PUT|DELETE|PATCH)\(\s*["']([^"']+)["']"#) {
+        let matches = find2(re, text)
+        for (method, path) in matches {
+          add(method, path)
+        }
       }
+      // net/http: http.HandleFunc("/path", ...) has no method hint; treat as ANY.
+      if let re2 = try? NSRegularExpression(pattern: #"(?m)http\.HandleFunc\(\s*["']([^"']+)["']"#) {
+        find1(re2, text).forEach { add("ANY", $0) }
+      }
+
     case "rust":
       if let re = try? NSRegularExpression(pattern: #"(?m)^\s*#\[\s*(get|post|put|delete|patch)\s*\(\s*["']([^"']+)['"]"#) {
         find2(re, text).forEach { add($0.0, $0.1) }
       }
+
     case "java","kotlin":
-      if let re = try? NSRegularExpression(pattern: #"(?m)^\s*@(?:GetMapping|PostMapping|PutMapping|DeleteMapping)\(\s*["']([^"']+)['"]"#) {
-        let m = find1(re, text)
-        for p in m {
-          let method: String
-          if p.lowercased().contains("post") { method = "POST" }
-          else if p.lowercased().contains("put") { method = "PUT" }
-          else if p.lowercased().contains("delete") { method = "DELETE" }
-          else { method = "GET" }
-          add(method, p.replacingOccurrences(of: "\"", with: ""))
+      // Spring-style: @GetMapping("/x"), @PostMapping("/x"), ...
+      if let re = try? NSRegularExpression(pattern: #"(?m)^\s*@((?:Get|Post|Put|Delete|Patch)Mapping)\(\s*["']([^"']+)['"]"#) {
+        let matches = find2(re, text)
+        for (mapping, path) in matches {
+          add(httpMethod(fromMappingAnnotation: mapping), path)
         }
       }
+      // (Best-effort) @RequestMapping(value="/x", method=RequestMethod.POST) etc. (optional heuristic)
+      if let re2 = try? NSRegularExpression(
+        pattern: #"(?m)^\s*@RequestMapping\([^)]*value\s*=\s*["']([^"']+)["'][^)]*method\s*=\s*RequestMethod\.([A-Z]+)[^)]*\)"#
+      ) {
+        let matches = find2(re2, text)
+        for (path, method) in matches {
+          add(method, path)
+        }
+      }
+
     default:
       break
     }
     return out
+  }
+
+  private func httpMethod(fromMappingAnnotation mapping: String) -> String {
+    let m = mapping.lowercased()
+    if m.hasPrefix("get") { return "GET" }
+    if m.hasPrefix("post") { return "POST" }
+    if m.hasPrefix("put") { return "PUT" }
+    if m.hasPrefix("delete") { return "DELETE" }
+    if m.hasPrefix("patch") { return "PATCH" }
+    return "GET"
   }
 
   private func isMainFile(url: URL, contentLower: String) -> Bool {
@@ -506,6 +545,7 @@ Arrows:
     }
     return out
   }
+
   private func find2(_ re: NSRegularExpression, _ s: String) -> [(String,String)] {
     let ns = s as NSString
     let rng = NSRange(location: 0, length: ns.length)
@@ -519,6 +559,7 @@ Arrows:
     }
     return out
   }
+
   private func find3(_ re: NSRegularExpression, _ s: String) -> [(String,String,String)] {
     let ns = s as NSString
     let rng = NSRange(location: 0, length: ns.length)

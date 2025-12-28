@@ -45,7 +45,11 @@ public struct DiagnosticsReport: Codable {
 }
 
 public extension DiagnosticsReport {
-  func toXML() -> String {
+
+  /// Render pseudo-XML diagnostics output.
+  /// - Parameter root: If provided, file paths in the embedded fix prompt are relativized to this root.
+  ///                  This keeps the prompt consistent with the CLI-generated prompt.
+  func toXML(root: URL? = nil) -> String {
     var parts: [String] = []
     parts.append("<diagnostics>")
     for ld in languages {
@@ -69,7 +73,7 @@ public extension DiagnosticsReport {
     }
     let totalIssues = languages.reduce(0) { $0 + $1.issues.count }
     parts.append("  <summary total_languages=\"\(languages.count)\" total_issues=\"\(totalIssues)\" />")
-    let prompt = FixPrompter.generateFixPrompt(from: self, root: nil)
+    let prompt = FixPrompter.generateFixPrompt(from: self, root: root)
     parts.append("  <fix_prompt>")
     parts.append("    <![CDATA[\(prompt)]]>")
     parts.append("  </fix_prompt>")

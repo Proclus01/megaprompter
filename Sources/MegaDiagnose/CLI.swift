@@ -117,7 +117,7 @@ struct MegaDiagnoseCLI: ParsableCommand {
     }
 
     // Prepare outputs
-    let xml = report.toXML()
+    let xml = report.toXML(root: root) // FIX: ensure embedded fix_prompt matches CLI prompt paths.
     let jsonData = try JSONEncoder().encode(report)
     let jsonString = String(decoding: jsonData, as: UTF8.self)
     let prompt = FixPrompter.generateFixPrompt(from: report, root: root)
@@ -168,4 +168,3 @@ struct RuntimeError: Error, CustomStringConvertible {
   let description: String
   init(_ description: String) { self.description = description }
 }
-

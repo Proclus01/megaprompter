@@ -53,7 +53,9 @@ public final class DiagnosticsRunner {
       langs.append(filterLang(runJava()))
     }
 
-    return DiagnosticsReport(languages: langs.filter { !$0.issues.isEmpty }, generatedAt: isoNow())
+    // FIX: Previously we filtered out languages with 0 issues, which made "languages analyzed"
+    // appear empty in successful builds. Keep all attempted languages; consumers can filter if desired.
+    return DiagnosticsReport(languages: langs, generatedAt: isoNow())
   }
 
   private func runSwift() -> LanguageDiagnostics {
@@ -389,4 +391,3 @@ private func isoNow() -> String {
   f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   return f.string(from: Date())
 }
-

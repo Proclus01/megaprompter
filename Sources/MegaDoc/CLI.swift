@@ -215,7 +215,7 @@ struct MegaDocCLI: ParsableCommand {
         imports: [],
         externalDependencies: [:],
         purposeSummary: summary,
-        fetchedDocs: [],
+        fetchedDocs: docs, // FIX: preserve fetched docs in the report for XML/JSON/prompt/summary.
         umlAscii: nil,
         umlPlantUML: nil
       )

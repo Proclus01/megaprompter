@@ -9,7 +9,10 @@ public final class TestPlanner {
   private let maxAnalyzeBytes: Int
 
   public init(root: URL, ignoreNames: [String], ignoreGlobs: [String], limitSubjects: Int, maxAnalyzeBytes: Int = 200_000) {
-    self.root = root
+    // IMPORTANT:
+    // macOS frequently presents temp paths as /var/... while the filesystem enumerator yields /private/var/...
+    // Canonicalize once to prevent regression path matching failures.
+    self.root = root.resolvingSymlinksInPath()
     self.ignoreNames = Set(ignoreNames)
     self.ignoreGlobs = ignoreGlobs
     self.limitSubjects = max(50, limitSubjects)
@@ -104,7 +107,7 @@ public final class TestPlanner {
         let cov = coverageMap[subj.id] ?? Coverage.missing()
         var scenarios: [ScenarioSuggestion] = []
 
-        // Build baseline scenarios from requested levels
+        // Baseline scenarios from requested levels
         scenarios.append(contentsOf: ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels))
 
         // Append regression if subject is impacted by diff
@@ -149,8 +152,22 @@ private func isoNow() -> String {
   return f.string(from: Date())
 }
 
+/// Robust relativization that tolerates macOS /var ↔ /private/var path differences by resolving symlinks.
 private func relativize(_ p: String, root: URL) -> String {
-  let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-  if p.hasPrefix(base) { return String(p.dropFirst(base.count)) }
-  return p
+  let resolvedRoot = root.resolvingSymlinksInPath()
+  let resolvedP = URL(fileURLWithPath: p).resolvingSymlinksInPath()
+
+  let baseResolved = resolvedRoot.path.hasSuffix("/") ? resolvedRoot.path : resolvedRoot.path + "/"
+  if resolvedP.path.hasPrefix(baseResolved) {
+    return String(resolvedP.path.dropFirst(baseResolved.count))
+  }
+
+  // Fallback: raw prefix comparison
+  let baseRaw = root.path.hasSuffix("/") ? root.path : root.path + "/"
+  if p.hasPrefix(baseRaw) {
+    return String(p.dropFirst(baseRaw.count))
+  }
+
+  // Last resort: filename only (best effort)
+  return resolvedP.lastPathComponent
 }
