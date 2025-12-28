@@ -9,9 +9,7 @@ public final class TestPlanner {
   private let maxAnalyzeBytes: Int
 
   public init(root: URL, ignoreNames: [String], ignoreGlobs: [String], limitSubjects: Int, maxAnalyzeBytes: Int = 200_000) {
-    // IMPORTANT:
-    // macOS frequently presents temp paths as /var/... while the filesystem enumerator yields /private/var/...
-    // Canonicalize once to prevent regression path matching failures.
+    // Canonicalize once to prevent macOS /var ↔ /private/var mismatches (important for regression diff matching).
     self.root = root.resolvingSymlinksInPath()
     self.ignoreNames = Set(ignoreNames)
     self.ignoreGlobs = ignoreGlobs
@@ -29,7 +27,9 @@ public final class TestPlanner {
     // Group files by detected language for fair-share iteration
     var queues: [String: [URL]] = [:]
     for f in filesForSubjects {
-      guard let lang = Heuristics.language(for: f) else { continue }
+      let ext = f.pathExtension.lowercased()
+      let lang: String? = Heuristics.language(for: f) ?? (ext == "lean" ? "lean" : nil)
+      guard let lang else { continue }
       queues[lang, default: []].append(f)
     }
 
@@ -53,7 +53,13 @@ public final class TestPlanner {
           content = String(content.prefix(maxAnalyzeBytes))
         }
 
-        let subjects = Heuristics.analyzeFile(url: f, content: content, lang: lang)
+        let subjects: [TestSubject] = {
+          if lang == "lean" {
+            return LeanAnalyzer.analyze(url: f, content: content)
+          }
+          return Heuristics.analyzeFile(url: f, content: content, lang: lang)
+        }()
+
         if !subjects.isEmpty {
           let remaining = max(0, limitSubjects - totalSubjects)
           let slice = subjects.prefix(remaining)
@@ -68,6 +74,8 @@ public final class TestPlanner {
     var perLangTestFiles: [String: Int] = [:]
     for lang in perLangSubjects.keys {
       let count = testFiles.filter { tf in
+        let ext = tf.pathExtension.lowercased()
+        if lang == "lean" { return ext == "lean" }
         if let l = Heuristics.language(for: tf), l == lang { return true }
         return false
       }.count
@@ -107,7 +115,7 @@ public final class TestPlanner {
         let cov = coverageMap[subj.id] ?? Coverage.missing()
         var scenarios: [ScenarioSuggestion] = []
 
-        // Baseline scenarios from requested levels
+        // Build baseline scenarios from requested levels
         scenarios.append(contentsOf: ScenarioBuilder.scenarios(for: subj, frameworks: fw, levels: levels))
 
         // Append regression if subject is impacted by diff

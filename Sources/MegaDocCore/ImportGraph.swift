@@ -11,7 +11,6 @@ public enum ImportGrapher {
     var edges: [Edge] = []
 
     // Performance: build a one-pass index for "stem" resolution.
-    // This avoids scanning the entire repo repeatedly (O(imports × repo_files)).
     let stemIndex = StemIndex.build(files: files)
 
     for f in files {
@@ -59,6 +58,7 @@ public enum ImportGrapher {
       case "swift": return "swift"
       case "java": return "java"
       case "kt","kts": return "kotlin"
+      case "lean": return "lean"
       default: return nil
     }
   }
@@ -73,11 +73,13 @@ public enum ImportGrapher {
         out += findMatches(res, content)
         out += findMatches(req, content)
         out += findMatches(dyn, content)
+
       case "python":
         let imp = try? NSRegularExpression(pattern: #"(?m)^\s*import\s+([A-Za-z0-9_\.]+)"#)
         let frm = try? NSRegularExpression(pattern: #"(?m)^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+"#)
         out += findMatches(imp, content)
         out += findMatches(frm, content)
+
       case "go":
         let line = try? NSRegularExpression(pattern: #"(?m)^\s*import\s+["]([^"]+)["]"#)
         out += findMatches(line, content)
@@ -90,18 +92,41 @@ public enum ImportGrapher {
             }
           }
         }
+
       case "rust":
         let useR = try? NSRegularExpression(pattern: #"(?m)^\s*use\s+([A-Za-z0-9_:]+)"#)
         out += findMatches(useR, content)
+
       case "swift":
         let imp = try? NSRegularExpression(pattern: #"(?m)^\s*import\s+([A-Za-z0-9_]+)"#)
         out += findMatches(imp, content)
+
       case "java","kotlin":
         let imp = try? NSRegularExpression(pattern: #"(?m)^\s*import\s+([A-Za-z0-9_\.]+)"#)
         out += findMatches(imp, content)
-      default: break
+
+      case "lean":
+        // Lean 4: `import Foo.Bar` or `import Foo.Bar Baz.Qux`
+        // Capture the remainder of the line and split on whitespace.
+        if let re = try? NSRegularExpression(pattern: #"(?m)^\s*import\s+(.+)$"#) {
+          let lines = findMatches(re, content)
+          for l in lines {
+            let comps = l
+              .split(whereSeparator: { $0 == " " || $0 == "\t" })
+              .map(String.init)
+              .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+              .filter { !$0.isEmpty }
+            out.append(contentsOf: comps)
+          }
+        }
+
+      default:
+        break
     }
-    return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+
+    return out
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
   }
 
   private static func resolve(root: URL, from file: URL, raw: String, lang: String, stemIndex: StemIndex) -> (isInternal: Bool, resolvedPath: String?) {
@@ -116,9 +141,19 @@ public enum ImportGrapher {
     // URLs are external.
     if raw.contains("://") { return (false, nil) }
 
+    // Lean 4 module resolution: Foo.Bar => Foo/Bar.lean (relative to repo root).
+    if lang == "lean" {
+      let modulePath = raw.replacingOccurrences(of: ".", with: "/") + ".lean"
+      let candidate = root.appendingPathComponent(modulePath)
+      if FileManager.default.fileExists(atPath: candidate.path) {
+        return (true, candidate.path)
+      }
+      // If not present in repo, treat as external (Std/Init/etc.).
+      return (false, nil)
+    }
+
     // Heuristic internal-by-stem resolution:
     // Only claim "internal" if there is a unique match in the current file set.
-    // This prevents many false positives for external packages like "@scope/pkg" or "react-dom/client".
     if isLikelyExternalImport(raw, lang: lang) {
       return (false, nil)
     }
@@ -136,8 +171,7 @@ public enum ImportGrapher {
     if lang == "typescript" || lang == "javascript" {
       if raw.hasPrefix("@") { return true }
       if raw.hasPrefix("node:") { return true }
-      // Most package imports do not start with '.'; however, internal aliasing is common.
-      // We avoid aggressive "stem" resolution for raw containing '/' because it is often external (e.g. react-dom/client).
+      // Many external packages include '/', so avoid aggressive stem resolution.
       if raw.contains("/") { return true }
       return false
     }
@@ -148,8 +182,6 @@ public enum ImportGrapher {
       return false
     }
 
-    // Rust: crates can be single token; we conservatively do not resolve by stem unless unique match exists.
-    // Keep default false.
     return false
   }
 
@@ -158,7 +190,7 @@ public enum ImportGrapher {
     let cand = baseDir.appendingPathComponent(raw)
     let fm = FileManager.default
     if fm.fileExists(atPath: cand.path) { return cand }
-    let exts = ["ts","tsx","js","jsx","mjs","cjs","py","go","rs","swift","java","kt","kts"]
+    let exts = ["ts","tsx","js","jsx","mjs","cjs","py","go","rs","swift","java","kt","kts","lean"]
     for e in exts {
       let c2 = cand.appendingPathExtension(e)
       if fm.fileExists(atPath: c2.path) { return c2 }
@@ -215,14 +247,12 @@ public enum ImportGrapher {
   // MARK: - Indexed resolution
 
   private struct StemIndex {
-    // stem -> URLs (usually 0/1; collisions possible).
     let byStem: [String: [URL]]
 
     static func build(files: [URL]) -> StemIndex {
       var idx: [String: [URL]] = [:]
       idx.reserveCapacity(files.count * 2)
       for f in files {
-        // Match both "Foo" and "Foo.ext"
         let stem = f.deletingPathExtension().lastPathComponent
         let full = f.lastPathComponent
         idx[stem, default: []].append(f)

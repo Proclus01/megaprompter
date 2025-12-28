@@ -28,6 +28,10 @@ public enum RulesFactory {
     "Build",                // Xcode local build dir inside project
     "builds",               // generic plural variant seen in some repos
 
+    // Lean 4 build/caches
+    ".lake",                // Lake build + package state
+    "lake-packages",        // some repos vendor dependencies here
+
     // IDE / tooling caches
     ".idea", ".vscode", ".gradle", ".cache", ".parcel-cache", ".turbo",
     ".sass-cache", ".nyc_output", ".coverage", "coverage",
@@ -71,6 +75,9 @@ public enum RulesFactory {
     ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".cs",
     ".php", ".rb", ".swift",
 
+    // Lean 4
+    ".lean",
+
     // IaC / data / query
     ".tf", ".graphql", ".gql", ".sql",
 
@@ -102,7 +109,7 @@ public enum RulesFactory {
     // platform noise
     ".DS_Store",
 
-    // NEW: explicitly ignore .gitignore per user request
+    // explicitly ignore .gitignore
     ".gitignore"
   ]
 
@@ -125,7 +132,7 @@ public enum RulesFactory {
   ]
 
   // Filenames we *always* include if present (important configs).
-  // NOTE: Removed `.gitignore` here per user request to ignore it.
+  // NOTE: Removed `.gitignore` here per request to ignore it.
   private static let baseForceIncludeNames: Set<String> = [
     "package.json",
     "pyproject.toml", "requirements.txt", "Pipfile", "setup.py", "setup.cfg", "tox.ini", "mypy.ini",
@@ -133,6 +140,12 @@ public enum RulesFactory {
     "Cargo.toml",
     "pom.xml",
     "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
+
+    // Lean 4 (Lake)
+    "lakefile.lean",
+    "lean-toolchain",
+    "lake-manifest.json",
+
     "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
     ".gitattributes",
     "tsconfig.json", "jsconfig.json",
@@ -196,6 +209,9 @@ public enum RulesFactory {
     }
     if languages.contains("go") {
       prune.formUnion(["vendor"])
+    }
+    if languages.contains("lean") {
+      prune.formUnion([".lake", "lake-packages"])
     }
 
     return IncludeRules(

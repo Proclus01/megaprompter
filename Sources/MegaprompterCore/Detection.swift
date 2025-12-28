@@ -34,6 +34,12 @@ public final class ProjectDetector {
     "terraform": ["*.tf"],
     "docker": ["Dockerfile"],
 
+    // Lean 4 (Lake)
+    // - lakefile.lean is the canonical Lean 4 project file
+    // - lean-toolchain pins toolchain version (common in Lean 4 repos)
+    // - *.lean files are a useful fallback marker
+    "lean": ["lakefile.lean", "lean-toolchain", "*.lean"],
+
     // LaTeX projects: recognize common markers
     // - latexmkrc (build config)
     // - any .tex file (e.g., main.tex) — typical in LaTeX repos
@@ -55,6 +61,10 @@ public final class ProjectDetector {
     ".rb": "ruby",
     ".swift": "swift",
     ".tf": "terraform",
+
+    // Lean 4
+    ".lean": "lean",
+
     ".scala": "scala", ".sbt": "scala",
     ".scss": "styles", ".sass": "styles", ".less": "styles", ".css": "styles",
     ".html": "html",

@@ -53,8 +53,13 @@ public final class DiagnosticsRunner {
       langs.append(filterLang(runJava()))
     }
 
-    // FIX: Previously we filtered out languages with 0 issues, which made "languages analyzed"
-    // appear empty in successful builds. Keep all attempted languages; consumers can filter if desired.
+    // Lean 4 (Lake)
+    if FileManager.default.fileExists(atPath: root.appendingPathComponent("lakefile.lean").path)
+      || FileManager.default.fileExists(atPath: root.appendingPathComponent("lean-toolchain").path) {
+      langs.append(filterLang(runLean()))
+    }
+
+    // Keep all attempted languages (even with 0 issues) for consistent UX.
     return DiagnosticsReport(languages: langs, generatedAt: isoNow())
   }
 
@@ -70,6 +75,20 @@ public final class DiagnosticsRunner {
       Console.warn("swift not found in PATH; skipping Swift diagnostics")
     }
     return LanguageDiagnostics(name: "swift", tool: tool, issues: issues)
+  }
+
+  private func runLean() -> LanguageDiagnostics {
+    var issues: [Diagnostic] = []
+    let tool = "lake build"
+    if let lake = Exec.which("lake") {
+      // `lake build` is the standard Lean 4 compilation check.
+      // This may download toolchains/packages if not present; that's expected for first runs.
+      let res = Exec.run(launchPath: lake, args: ["build"], cwd: root, timeoutSeconds: timeout)
+      issues.append(contentsOf: Parsers.parseLean(res.stdout, res.stderr))
+    } else {
+      Console.warn("lake not found in PATH; skipping Lean diagnostics (install Lean 4 via elan, which provides `lake`)")
+    }
+    return LanguageDiagnostics(name: "lean", tool: tool, issues: issues)
   }
 
   private func runTypeScriptOrJS() -> LanguageDiagnostics {
@@ -205,7 +224,6 @@ public final class DiagnosticsRunner {
       }
     } else {
       for pkg in pkgs {
-        // Respect ignore rules for relative paths as best-effort filtering
         if isIgnoredImportPath(pkg) { continue }
         let res = Exec.run(launchPath: go, args: ["build", "-gcflags=all=-e", pkg], cwd: root, timeoutSeconds: timeout)
         issues.append(contentsOf: Parsers.parseGo(res.stdout, res.stderr))
@@ -233,14 +251,12 @@ public final class DiagnosticsRunner {
     for line: String.SubSequence in (res.stdout + "\n" + res.stderr).split(separator: "\n", omittingEmptySubsequences: true) {
       let s: String = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
       if s.isEmpty { continue }
-      // Skip std packages or vendor (go list ./... won't list std, but safe)
       if s == "std" { continue }
       out.append(s)
     }
     return Array(Set(out)).sorted()
   }
 
-  // Fallback when 'go list' fails: gather relative package paths './foo/bar' for dirs with .go files
   private func collectGoPackageDirs() -> [String] {
     guard let enumr = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
       return []
@@ -255,7 +271,6 @@ public final class DiagnosticsRunner {
           if rel.hasPrefix("./vendor/") || rel.contains("/vendor/") || rel == "vendor" {
             continue
           }
-          // Use "./<rel>" so 'go build' can accept it as a pattern
           let pkg = rel.hasPrefix("./") ? rel : ("./" + rel)
           dirs.insert(pkg)
         }
@@ -265,13 +280,8 @@ public final class DiagnosticsRunner {
   }
 
   private func isIgnoredImportPath(_ pkg: String) -> Bool {
-    // For import paths, approximate ignore by checking last segments and matching globs
     let parts = pkg.split(separator: "/").map(String.init)
     if parts.contains(where: { ignoreNames.contains($0) }) { return true }
-    if !ignoreGlobs.isEmpty {
-      // Try to map import path to relative path (best effort)
-      // We cannot easily resolve to disk path without 'go list -f {{.Dir}}', so we only apply name-based ignoring here.
-    }
     return false
   }
 

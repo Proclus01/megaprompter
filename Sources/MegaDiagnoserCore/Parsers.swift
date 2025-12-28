@@ -157,6 +157,28 @@ public enum Parsers {
     return results
   }
 
+  // Lean 4 (lake build / lean):
+  // ./Foo/Bar.lean:12:3: error: <message>
+  // Foo/Bar.lean:12:3: warning: <message>
+  public static func parseLean(_ stdout: String, _ stderr: String) -> [Diagnostic] {
+    let tool = "lake build"
+    var results: [Diagnostic] = []
+    let combined = stdout + "\n" + stderr
+    let regex = try! NSRegularExpression(
+      pattern: #"^(.+?\.lean):(\d+):(\d+):\s+(error|warning):\s+(.+)$"#,
+      options: [.anchorsMatchLines, .caseInsensitive]
+    )
+    combined.enumerateMatches(regex: regex) { m in
+      let file = m[1]
+      let line = Int(m[2])
+      let col = Int(m[3])
+      let sev = (m[4].lowercased() == "warning") ? Severity.warning : Severity.error
+      let msg = m[5]
+      results.append(Diagnostic(tool: tool, language: "lean", file: file, line: line, column: col, code: nil, severity: sev, message: msg))
+    }
+    return results
+  }
+
   // Unix formatter: path:line:column: message
   // Useful for eslint -f unix .
   public static func parseUnixStyle(_ stdout: String, _ stderr: String, language: String, tool: String) -> [Diagnostic] {

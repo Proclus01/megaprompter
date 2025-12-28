@@ -49,6 +49,12 @@ enum FrameworkDetector {
       byLang["java"] = ["JUnit"]
     }
 
+    // Lean 4: Lake build checks (Lean projects typically validate by compilation/proof checking).
+    if FileManager.default.fileExists(atPath: root.appendingPathComponent("lakefile.lean").path) ||
+       FileManager.default.fileExists(atPath: root.appendingPathComponent("lean-toolchain").path) {
+      byLang["lean"] = ["Lake (Lean 4): lake build"]
+    }
+
     return byLang
   }
 }
